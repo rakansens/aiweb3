@@ -14,27 +14,38 @@ export class AIWallet {
   private provider: ethers.providers.JsonRpcProvider;
   private alchemy: Alchemy;
 
+  private static providerOptions = {
+    polling: false,
+    pollingInterval: 0,
+    staticNetwork: true, // ネットワーク変更の監視を無効化
+    skipGetNetwork: true, // 初期のネットワークチェックをスキップ
+    batchRequests: true, // リクエストをバッチ化
+    cacheTimeout: 300000, // 5分のキャッシュ
+  };
+
   constructor(
     privateKey: string,
     contractAddress: string,
     provider: ethers.providers.JsonRpcProvider
   ) {
-    // プロバイダーのポーリングを完全に無効化
-    provider.polling = false;
-    provider.pollingInterval = 0;
-    // ブロックイベントの監視を無効化
-    provider.removeAllListeners('block');
+    // プロバイダーの設定を最適化
+    Object.assign(provider, AIWallet.providerOptions);
     
     this.provider = provider;
     this.wallet = new ethers.Wallet(privateKey, provider);
     this.contract = AIAgentWallet__factory.connect(contractAddress, this.wallet);
+    
     // Alchemyインスタンスの設定を最適化
     this.alchemy = new Alchemy({
       ...settings,
-      // 基本的な設定のみ使用
       maxRetries: 0,
       requestTimeout: 30000
     });
+
+    // チェーンIDをキャッシュ
+    this.provider.getNetwork().then(network => {
+      this.provider._network = network;
+    }).catch(console.error);
 
     // プロバイダーの設定を最適化
     if (this.provider instanceof ethers.providers.JsonRpcProvider) {
@@ -55,18 +66,50 @@ export class AIWallet {
     }
   }
 
-  // トランザクション履歴の取得
+  private lastCheckedBlock: number = 0;
+  private transferCache: any = null;
+  private transferCacheTime: number = 0;
+  private readonly CACHE_DURATION = 5 * 60 * 1000; // 5分
+
+  // トランザクション履歴の取得(最適化版)
   async getTransactionHistory(): Promise<any> {
-    return await this.alchemy.core.getAssetTransfers({
-      fromAddress: this.contract.address,
-      category: [
-        AssetTransfersCategory.EXTERNAL,
-        AssetTransfersCategory.INTERNAL,
-        AssetTransfersCategory.ERC20,
-        AssetTransfersCategory.ERC721,
-        AssetTransfersCategory.ERC1155
-      ],
-    });
+    const now = Date.now();
+    
+    // キャッシュが有効な場合はキャッシュを返す
+    if (this.transferCache && (now - this.transferCacheTime) < this.CACHE_DURATION) {
+      return this.transferCache;
+    }
+
+    try {
+      // 最新のブロック番号を取得
+      const latestBlock = await this.provider.getBlockNumber();
+      
+      // 前回チェックしたブロックから最新までのみ取得
+      const fromBlock = this.lastCheckedBlock || latestBlock - 100; // 初回は100ブロック分
+      
+      const transfers = await this.alchemy.core.getAssetTransfers({
+        fromAddress: this.contract.address,
+        fromBlock: `0x${fromBlock.toString(16)}`,
+        toBlock: `0x${latestBlock.toString(16)}`,
+        category: [
+          AssetTransfersCategory.EXTERNAL,
+          AssetTransfersCategory.INTERNAL,
+          AssetTransfersCategory.ERC20,
+          AssetTransfersCategory.ERC721,
+          AssetTransfersCategory.ERC1155
+        ],
+      });
+
+      // キャッシュを更新
+      this.transferCache = transfers;
+      this.transferCacheTime = now;
+      this.lastCheckedBlock = latestBlock;
+
+      return transfers;
+    } catch (error) {
+      console.error('Failed to fetch transfer history:', error);
+      return this.transferCache || { transfers: [] };
+    }
   }
 
   // トークン残高の取得
@@ -81,13 +124,16 @@ export class AIWallet {
     // 既存のリスナーをクリーンアップ
     this.unsubscribeFromEvents();
 
-    // コントラクトのイベントをフィルターで監視
+    // コントラクトのイベントをフィルターで監視(最適化)
     const filter = {
       address: this.contract.address,
       topics: [
-        ethers.utils.id("TransactionExecuted(address,uint256)"),
-        ethers.utils.id("WalletLocked(bool)")
-      ]
+        [
+          ethers.utils.id("TransactionExecuted(address,uint256)"),
+          ethers.utils.id("WalletLocked(bool)")
+        ]
+      ],
+      fromBlock: 'latest' // 最新のブロックのみを監視
     };
 
     // イベント処理用の共通ハンドラ
