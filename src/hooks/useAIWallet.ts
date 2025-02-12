@@ -338,31 +338,35 @@ export const useAIWallet = () => {
   }, [wallet]);
 
   // イベントの監視設定
+  // イベントハンドラをメモ化
+  const handleEvent = useCallback((event: any) => {
+    if (!mountedRef.current) return;
+    // トランザクション関連のイベントの場合のみ更新を実行
+    if (event.type === 'transaction') {
+      refreshState();
+      refreshAlchemyData();
+    }
+  }, [refreshState, refreshAlchemyData]);
+
   useEffect(() => {
     if (!wallet || !mountedRef.current) return;
 
-    const handleEvent = (event: any) => {
-      // トランザクション関連のイベントの場合のみ更新を実行
-      if (event.type === 'transaction') {
-        refreshState();
-        refreshAlchemyData();
-      }
-    };
+    // イベントハンドラを設定
+    wallet.subscribeToEvents(handleEvent);
 
-    // イベントハンドラを一度だけ設定
-    const walletInstance = wallet;
-    walletInstance.subscribeToEvents(handleEvent);
-
-    // 初回のデータ取得
-    refreshState();
-    refreshAlchemyData();
+    // 初回のデータ取得(キャッシュがない場合のみ)
+    const cache = stateCache.current;
+    if (!cache || Date.now() - cache.timestamp >= CACHE_DURATION) {
+      refreshState();
+      refreshAlchemyData();
+    }
 
     return () => {
       if (mountedRef.current) {
-        walletInstance.unsubscribeFromEvents();
+        wallet.unsubscribeFromEvents();
       }
     };
-  }, []); // 依存配列を空にして、マウント時のみ実行
+  }, [wallet, handleEvent]); // wallet変更時にイベントハンドラを再設定
 
   return {
     ...state,
