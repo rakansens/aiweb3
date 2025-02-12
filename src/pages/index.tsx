@@ -3,6 +3,22 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useAICommand } from '../hooks/useAICommand';
 import { useAIWallet } from '../hooks/useAIWallet';
+import { WalletCard } from '../components/WalletCard';
+import { GasEstimate } from '../components/GasEstimate';
+import { TransactionList } from '../components/TransactionList';
+
+// 拡張されたウォレットの型
+type ExtendedWalletState = ReturnType<typeof useAIWallet> & {
+  estimatedGas: string | null;
+  processingStep?: string;
+  transactions: Array<{
+    hash: string;
+    to: string;
+    value: string;
+    timestamp: number;
+    status: 'pending' | 'confirmed' | 'failed';
+  }>;
+};
 
 type Message = {
   role: 'assistant' | 'user';
@@ -216,6 +232,39 @@ export default function Home() {
         {/* メインコンテンツ */}
         <div className="flex-1 overflow-y-auto bg-white">
           <div className="max-w-[800px] mx-auto w-full h-full py-8 px-6">
+            {/* ウォレット情報 */}
+            {wallet.isInitialized && (
+              <div className="mb-8">
+                <WalletCard
+                  address={wallet.address}
+                  balance={wallet.balance}
+                  isInitialized={wallet.isInitialized}
+                  isLocked={wallet.isLocked}
+                  onCopy={() => {
+                    setMessages(prev => [...prev, {
+                      role: 'assistant',
+                      content: 'アドレスをクリップボードにコピーしました。',
+                      timestamp: Date.now()
+                    }]);
+                  }}
+                />
+                <GasEstimate
+                  estimatedGas={wallet.estimatedGas || '0'}
+                  isProcessing={isProcessing}
+                  processingStep={wallet.processingStep || undefined}
+                />
+                <TransactionList
+                  transactions={wallet.alchemyData.transactions.map(tx => ({
+                    hash: tx.hash || '',
+                    to: tx.to || '',
+                    value: tx.value || '0',
+                    timestamp: tx.metadata?.blockTimestamp ? new Date(tx.metadata.blockTimestamp).getTime() : Date.now(),
+                    status: 'confirmed'
+                  }))}
+                  isLoading={wallet.alchemyData.isLoading}
+                />
+              </div>
+            )}
             {/* メッセージ履歴 */}
             <div className="space-y-6">
               {messages.map((message) => (

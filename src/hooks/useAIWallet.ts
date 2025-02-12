@@ -24,6 +24,8 @@ export type WalletState = {
     latestBlock: any;
     isLoading: boolean;
   };
+  estimatedGas: string | null;
+  processingStep: string | null;
 };
 
 const INITIAL_STATE: WalletState = {
@@ -45,7 +47,18 @@ const INITIAL_STATE: WalletState = {
     tokenBalances: [],
     latestBlock: null,
     isLoading: false
-  }
+  },
+  estimatedGas: null,
+  processingStep: null
+};
+
+// トランザクション型の定義
+export type Transaction = {
+  hash: string;
+  to: string;
+  value: string;
+  timestamp: number;
+  status: 'pending' | 'confirmed' | 'failed';
 };
 
 export const useAIWallet = () => {
