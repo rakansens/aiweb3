@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 
 export type WalletInfo = {
   id: string;
@@ -39,8 +39,42 @@ export const useWalletList = () => {
     }
   }, [activeWalletId]);
 
+  // アクティブなウォレットを切り替え
+  const switchActiveWallet = useCallback((id: string) => {
+    setWallets(prev =>
+      prev.map(wallet => ({
+        ...wallet,
+        isActive: wallet.id === id
+      }))
+    );
+    setActiveWalletId(id);
+  }, []);
+
+  // ウォレットの名前を変更
+  const renameWallet = useCallback((id: string, newName: string) => {
+    setWallets(prev =>
+      prev.map(wallet =>
+        wallet.id === id ? { ...wallet, name: newName } : wallet
+      )
+    );
+  }, []);
+
+  // ウォレットを削除
+  const removeWallet = useCallback((id: string) => {
+    setWallets(prev => prev.filter(wallet => wallet.id !== id));
+    if (activeWalletId === id) {
+      const remainingWallets = wallets.filter(wallet => wallet.id !== id);
+      setActiveWalletId(remainingWallets[0]?.id || null);
+    }
+  }, [activeWalletId, wallets]);
+
+  // アクティブなウォレットを取得
+  const getActiveWallet = useCallback(() => {
+    return wallets.find(wallet => wallet.id === activeWalletId);
+  }, [wallets, activeWalletId]);
+
   // 新しいウォレットを追加
-  const addWallet = (wallet: Omit<WalletInfo, 'id' | 'createdAt' | 'isActive'>) => {
+  const addWallet = useCallback((wallet: Omit<WalletInfo, 'id' | 'createdAt' | 'isActive'>) => {
     // アドレスの重複チェック
     const existingWallet = wallets.find(w => w.address === wallet.address);
     if (existingWallet) {
@@ -54,53 +88,18 @@ export const useWalletList = () => {
       ...wallet,
       id: `wallet_${Date.now()}`,
       createdAt: Date.now(),
-      isActive: wallets.length === 0 // 最初のウォレットの場合はアクティブに
+      isActive: wallets.length === 0
     };
 
     setWallets(prev => [...prev, newWallet]);
     
-    // 最初のウォレットの場合はアクティブに設定
     if (wallets.length === 0) {
       setActiveWalletId(newWallet.id);
     }
 
     console.log('New wallet added:', newWallet);
     return newWallet;
-  };
-
-  // ウォレットの名前を変更
-  const renameWallet = (id: string, newName: string) => {
-    setWallets(prev =>
-      prev.map(wallet =>
-        wallet.id === id ? { ...wallet, name: newName } : wallet
-      )
-    );
-  };
-
-  // アクティブなウォレットを切り替え
-  const switchActiveWallet = (id: string) => {
-    setWallets(prev =>
-      prev.map(wallet => ({
-        ...wallet,
-        isActive: wallet.id === id
-      }))
-    );
-    setActiveWalletId(id);
-  };
-
-  // ウォレットを削除
-  const removeWallet = (id: string) => {
-    setWallets(prev => prev.filter(wallet => wallet.id !== id));
-    if (activeWalletId === id) {
-      const remainingWallets = wallets.filter(wallet => wallet.id !== id);
-      setActiveWalletId(remainingWallets[0]?.id || null);
-    }
-  };
-
-  // アクティブなウォレットを取得
-  const getActiveWallet = () => {
-    return wallets.find(wallet => wallet.id === activeWalletId);
-  };
+  }, [wallets, switchActiveWallet]);
 
   return {
     wallets,
