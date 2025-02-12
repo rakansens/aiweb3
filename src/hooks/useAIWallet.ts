@@ -341,6 +341,7 @@ export const useAIWallet = () => {
   useEffect(() => {
     if (!wallet || !mountedRef.current) return;
 
+    let isFirstLoad = true;
     const handleEvent = (event: any) => {
       // イベント発生時のみ更新を実行
       if (event.type === 'transaction' || event.type === 'block') {
@@ -354,13 +355,16 @@ export const useAIWallet = () => {
 
     wallet.subscribeToEvents(handleEvent);
 
-    // 初回のAlchemyデータ取得
-    refreshAlchemyData();
+    // 初回のみAlchemyデータを取得
+    if (isFirstLoad) {
+      refreshAlchemyData();
+      isFirstLoad = false;
+    }
 
     return () => {
       wallet.unsubscribeFromEvents();
     };
-  }, [wallet, refreshAlchemyData, refreshState]);
+  }, [wallet]);
 
   return {
     ...state,

@@ -19,6 +19,8 @@ export class AIWallet {
     contractAddress: string,
     provider: ethers.providers.JsonRpcProvider
   ) {
+    // プロバイダーのポーリング間隔を無効化
+    provider.polling = false;
     this.provider = provider;
     this.wallet = new ethers.Wallet(privateKey, provider);
     this.contract = AIAgentWallet__factory.connect(contractAddress, this.wallet);
