@@ -3,7 +3,9 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useAICommand } from '../hooks/useAICommand';
 import { useAIWallet } from '../hooks/useAIWallet';
+import { useWalletList } from '../hooks/useWalletList';
 import { WalletInfoModal } from '../components/WalletInfoModal';
+import { WalletListModal } from '../components/WalletListModal';
 
 // 拡張されたウォレットの型
 type ExtendedWalletState = ReturnType<typeof useAIWallet> & {
@@ -44,11 +46,35 @@ const INITIAL_MESSAGE: Message = {
 export default function Home() {
   const wallet = useAIWallet();
   const { processCommand, isProcessing } = useAICommand();
+  const {
+    wallets,
+    activeWalletId,
+    addWallet,
+    renameWallet,
+    switchActiveWallet,
+    removeWallet
+  } = useWalletList();
+  
   const [messages, setMessages] = useState<Message[]>([]);
   const [command, setCommand] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [isFirstRender, setIsFirstRender] = useState(true);
   const [isWalletInfoOpen, setIsWalletInfoOpen] = useState(false);
+  const [isWalletListOpen, setIsWalletListOpen] = useState(false);
+
+  // ウォレット作成時の処理
+  const handleWalletCreated = useCallback((walletInfo: {
+    address: string;
+    privateKey: string;
+    contractAddress: string;
+  }) => {
+    addWallet({
+      name: `ウォレット ${wallets.length + 1}`,
+      address: walletInfo.address,
+      contractAddress: walletInfo.contractAddress,
+      privateKey: walletInfo.privateKey
+    });
+  }, [addWallet, wallets.length]);
 
   // ウォレットの状態が変更されたときにメッセージを追加
   useEffect(() => {
@@ -231,7 +257,7 @@ export default function Home() {
         {/* メインコンテンツ */}
         <div className="flex-1 overflow-y-auto bg-white">
           <div className="max-w-[800px] mx-auto w-full h-full py-8 px-6">
-            {/* ウォレット情報モーダル */}
+            {/* モーダル */}
             <WalletInfoModal
               isOpen={isWalletInfoOpen}
               onClose={() => setIsWalletInfoOpen(false)}
@@ -246,9 +272,25 @@ export default function Home() {
               }}
             />
 
-            {/* ウォレット情報表示ボタン */}
+            <WalletListModal
+              isOpen={isWalletListOpen}
+              onClose={() => setIsWalletListOpen(false)}
+              wallets={wallets}
+              activeWalletId={activeWalletId}
+              onSwitchWallet={switchActiveWallet}
+              onRenameWallet={renameWallet}
+              onRemoveWallet={removeWallet}
+            />
+
+            {/* ヘッダーボタン */}
             {wallet.isInitialized && (
-              <div className="mb-8 flex justify-end">
+              <div className="mb-8 flex justify-end space-x-4">
+                <button
+                  onClick={() => setIsWalletListOpen(true)}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+                >
+                  ウォレット管理
+                </button>
                 <button
                   onClick={() => setIsWalletInfoOpen(true)}
                   className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
