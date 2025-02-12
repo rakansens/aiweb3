@@ -70,13 +70,18 @@ export default function Home() {
     contractAddress: string;
   }) => {
     console.log('Creating new wallet:', walletInfo);
-    const newWallet = addWallet({
+    const wallet = addWallet({
       name: `ウォレット ${wallets.length + 1}`,
       address: walletInfo.address,
       contractAddress: walletInfo.contractAddress,
       privateKey: walletInfo.privateKey
     });
-    console.log('New wallet added:', newWallet);
+    console.log('Wallet added:', wallet);
+    
+    // 既存のウォレットの場合はアクティブにする
+    if (wallet) {
+      switchActiveWallet(wallet.id);
+    }
     
     // ウォレットリストを表示
     setIsWalletListOpen(true);
@@ -85,19 +90,23 @@ export default function Home() {
   // 初期ウォレットの読み込み
   useEffect(() => {
     const savedWallet = localStorage.getItem('aiWallet');
-    if (savedWallet) {
+    if (savedWallet && !wallets.length) {
       try {
         const walletData = JSON.parse(savedWallet);
-        handleWalletCreated({
+        const wallet = addWallet({
+          name: 'ウォレット 1',
           address: walletData.contractAddress,
           privateKey: walletData.privateKey,
           contractAddress: walletData.contractAddress
         });
+        if (wallet) {
+          switchActiveWallet(wallet.id);
+        }
       } catch (error) {
         console.error('Failed to load saved wallet:', error);
       }
     }
-  }, [handleWalletCreated]);
+  }, [addWallet, switchActiveWallet, wallets.length]);
 
   // ウォレットの状態が変更されたときにメッセージを追加
   useEffect(() => {
@@ -115,11 +124,15 @@ export default function Home() {
   }, [wallet.error]);
 
   useEffect(() => {
-    if (wallet.isInitialized && !wallet.isCreating) {
-      const lastMessage = messages[messages.length - 1];
-      const isInitMessage = lastMessage?.content?.includes('ウォレットが初期化されました');
-      
-      if (!isInitMessage) {
+    const shouldAddMessage = wallet.isInitialized &&
+      !wallet.isCreating &&
+      messages.length > 0 &&
+      !messages[messages.length - 1]?.content?.includes('ウォレットが初期化されました');
+
+    if (shouldAddMessage) {
+      const messageId = `init_${Date.now()}`;
+      if (!window.addedMessages?.includes(messageId)) {
+        window.addedMessages = [...(window.addedMessages || []), messageId];
         setMessages(prev => [...prev, {
           role: 'assistant',
           content: `ウォレットが初期化されました。\nアドレス: ${wallet.address}\n残高: ${wallet.balance} ETH`,
@@ -131,7 +144,7 @@ export default function Home() {
         }]);
       }
     }
-  }, [wallet.isInitialized, wallet.isCreating, messages]);
+  }, [wallet.isInitialized, wallet.isCreating, wallet.address, wallet.balance]);
 
   // メッセージの初期化
   useEffect(() => {

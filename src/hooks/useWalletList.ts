@@ -48,7 +48,7 @@ export const useWalletList = () => {
       }))
     );
     setActiveWalletId(id);
-  }, []);
+  }, [setWallets, setActiveWalletId]);
 
   // ウォレットの名前を変更
   const renameWallet = useCallback((id: string, newName: string) => {
@@ -79,8 +79,6 @@ export const useWalletList = () => {
     const existingWallet = wallets.find(w => w.address === wallet.address);
     if (existingWallet) {
       console.log('Wallet already exists:', existingWallet);
-      // 既存のウォレットをアクティブに設定
-      switchActiveWallet(existingWallet.id);
       return existingWallet;
     }
 
@@ -99,7 +97,7 @@ export const useWalletList = () => {
 
     console.log('New wallet added:', newWallet);
     return newWallet;
-  }, [wallets, switchActiveWallet]);
+  }, [wallets.length]);
 
   return {
     wallets,
