@@ -3,9 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useAICommand } from '../hooks/useAICommand';
 import { useAIWallet } from '../hooks/useAIWallet';
-import { WalletCard } from '../components/WalletCard';
-import { GasEstimate } from '../components/GasEstimate';
-import { TransactionList } from '../components/TransactionList';
+import { WalletInfoModal } from '../components/WalletInfoModal';
 
 // 拡張されたウォレットの型
 type ExtendedWalletState = ReturnType<typeof useAIWallet> & {
@@ -50,6 +48,7 @@ export default function Home() {
   const [command, setCommand] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [isFirstRender, setIsFirstRender] = useState(true);
+  const [isWalletInfoOpen, setIsWalletInfoOpen] = useState(false);
 
   // ウォレットの状態が変更されたときにメッセージを追加
   useEffect(() => {
@@ -232,37 +231,30 @@ export default function Home() {
         {/* メインコンテンツ */}
         <div className="flex-1 overflow-y-auto bg-white">
           <div className="max-w-[800px] mx-auto w-full h-full py-8 px-6">
-            {/* ウォレット情報 */}
+            {/* ウォレット情報モーダル */}
+            <WalletInfoModal
+              isOpen={isWalletInfoOpen}
+              onClose={() => setIsWalletInfoOpen(false)}
+              wallet={{
+                address: wallet.address,
+                balance: wallet.balance,
+                isInitialized: wallet.isInitialized,
+                isLocked: wallet.isLocked,
+                alchemyData: wallet.alchemyData,
+                estimatedGas: wallet.estimatedGas,
+                processingStep: wallet.processingStep
+              }}
+            />
+
+            {/* ウォレット情報表示ボタン */}
             {wallet.isInitialized && (
-              <div className="mb-8">
-                <WalletCard
-                  address={wallet.address}
-                  balance={wallet.balance}
-                  isInitialized={wallet.isInitialized}
-                  isLocked={wallet.isLocked}
-                  onCopy={() => {
-                    setMessages(prev => [...prev, {
-                      role: 'assistant',
-                      content: 'アドレスをクリップボードにコピーしました。',
-                      timestamp: Date.now()
-                    }]);
-                  }}
-                />
-                <GasEstimate
-                  estimatedGas={wallet.estimatedGas || '0'}
-                  isProcessing={isProcessing}
-                  processingStep={wallet.processingStep || undefined}
-                />
-                <TransactionList
-                  transactions={wallet.alchemyData.transactions.map(tx => ({
-                    hash: tx.hash || '',
-                    to: tx.to || '',
-                    value: tx.value || '0',
-                    timestamp: tx.metadata?.blockTimestamp ? new Date(tx.metadata.blockTimestamp).getTime() : Date.now(),
-                    status: 'confirmed'
-                  }))}
-                  isLoading={wallet.alchemyData.isLoading}
-                />
+              <div className="mb-8 flex justify-end">
+                <button
+                  onClick={() => setIsWalletInfoOpen(true)}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+                >
+                  ウォレット情報を表示
+                </button>
               </div>
             )}
             {/* メッセージ履歴 */}
