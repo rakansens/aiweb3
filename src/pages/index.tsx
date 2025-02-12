@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useAICommand } from '../hooks/useAICommand';
+import { useAIWallet } from '../hooks/useAIWallet';
 
 type Message = {
   role: 'assistant' | 'user';
@@ -27,11 +28,41 @@ const INITIAL_MESSAGE: Message = {
 };
 
 export default function Home() {
+  const wallet = useAIWallet();
   const { processCommand, isProcessing } = useAICommand();
   const [messages, setMessages] = useState<Message[]>([]);
   const [command, setCommand] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [isFirstRender, setIsFirstRender] = useState(true);
+
+  // ウォレットの状態が変更されたときにメッセージを追加
+  useEffect(() => {
+    if (wallet.error) {
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: `エラー: ${wallet.error}`,
+        timestamp: Date.now(),
+        ui: {
+          type: 'select',
+          options: ['最初からやり直す']
+        }
+      }]);
+    }
+  }, [wallet.error]);
+
+  useEffect(() => {
+    if (wallet.isInitialized) {
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: `ウォレットが初期化されました。\nアドレス: ${wallet.address}\n残高: ${wallet.balance} ETH`,
+        timestamp: Date.now(),
+        ui: {
+          type: 'select',
+          options: ['残高を確認', 'トランザクション履歴を見る']
+        }
+      }]);
+    }
+  }, [wallet.isInitialized, wallet.address, wallet.balance]);
 
   // メッセージの初期化
   useEffect(() => {
@@ -105,6 +136,53 @@ export default function Home() {
         timestamp: Date.now()
       }]);
 
+      // ウォレット関連のアクション処理
+      if (action === 'ウォレットを作成したい') {
+        try {
+          const walletInfo = await wallet.createWallet();
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: `ウォレットを作成しました!\n\nアドレス: ${walletInfo.address}\n\n重要な情報は安全に保管してください。`,
+            timestamp: Date.now(),
+            ui: {
+              type: 'select',
+              options: ['セキュリティ情報を表示', '残高を確認']
+            }
+          }]);
+          return;
+        } catch (error) {
+          throw new Error(`ウォレット作成に失敗しました: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+
+      if (action === 'セキュリティ情報を表示' && wallet.securityInfo) {
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: `重要なセキュリティ情報:\n\n秘密鍵:\n${wallet.securityInfo.privateKey || 'N/A'}\n\nニーモニック:\n${wallet.securityInfo.mnemonic || 'N/A'}\n\nこれらの情報は必ず安全な場所に保管してください。`,
+          timestamp: Date.now(),
+          ui: {
+            type: 'select',
+            options: ['情報を保存しました', '残高を確認']
+          }
+        }]);
+        return;
+      }
+
+      if (action === '残高を確認') {
+        await wallet.refreshState();
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: `現在の残高: ${wallet.balance || '0'} ETH`,
+          timestamp: Date.now(),
+          ui: {
+            type: 'select',
+            options: ['トランザクション履歴を見る', 'ウォレットについて教えて']
+          }
+        }]);
+        return;
+      }
+
+      // その他のアクション
       const response = await processCommand(action);
       setMessages(prev => [...prev, {
         role: 'assistant',

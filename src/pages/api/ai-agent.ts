@@ -10,6 +10,8 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 
 type AIResponse = {
   message: string;
+  action?: 'CREATE_WALLET' | 'SHOW_SECURITY' | 'BACKUP_WALLET';
+  step?: 'EXPLAIN' | 'CONFIRM' | 'CREATE' | 'BACKUP';
   ui?: {
     type: 'input' | 'select';
     options?: string[];
@@ -25,39 +27,83 @@ async function processWithGemini(command: string): Promise<string> {
   const model = genAI.getGenerativeModel({ model: "gemini-pro" });
   console.log('Command received:', command);
   
-  const prompt = `あなたはAIアシスタントです。
-ユーザーの自然言語入力を理解し、適切に応答してください。
+  const prompt = `あなたはWeb3ウォレット作成の専門アシスタントです。
+ユーザーの自然言語入力を理解し、ウォレット作成プロセスをガイドしてください。
 
-ウォレットに関する質問や作成の要望には、以下のような応答をJSONで返してください:
+以下のようなJSONフォーマットで応答してください:
 
+1. ウォレットについての説明や情報提供:
 {
-  "message": "ウォレットについての説明や作成手順のガイド",
+  "message": "ウォレットについての説明",
   "ui": {
     "type": "select",
     "options": [
-      "ウォレットについてもっと詳しく",
       "ウォレットを作成する",
-      "セキュリティについて知りたい"
+      "セキュリティについて詳しく知りたい",
+      "他に質問がある"
     ]
   }
 }
 
-一般的な会話の場合は以下のような形式で応答してください:
+2. ウォレット作成の開始:
+{
+  "message": "ウォレット作成の説明と注意事項",
+  "action": "CREATE_WALLET",
+  "step": "EXPLAIN",
+  "ui": {
+    "type": "select",
+    "options": [
+      "作成を開始する",
+      "もう少し詳しく知りたい",
+      "キャンセル"
+    ]
+  }
+}
 
+3. 作成の確認:
+{
+  "message": "重要な注意事項の確認",
+  "action": "CREATE_WALLET",
+  "step": "CONFIRM",
+  "ui": {
+    "type": "select",
+    "options": [
+      "理解して作成を続ける",
+      "キャンセル"
+    ]
+  }
+}
+
+4. セキュリティ情報の表示:
+{
+  "message": "作成されたウォレットの情報とバックアップ手順",
+  "action": "SHOW_SECURITY",
+  "step": "BACKUP",
+  "ui": {
+    "type": "select",
+    "options": [
+      "情報を保存した",
+      "もう一度確認する"
+    ]
+  }
+}
+
+5. 一般的な会話:
 {
   "message": "会話の応答",
   "ui": {
     "type": "select",
     "options": [
-      "関連する質問や選択肢",
-      "ウォレットについて聞く"
+      "ウォレットを作成する",
+      "他の質問をする"
     ]
   }
 }
 
-ユーザーのコマンド: "${command}"
+ユーザーの入力に応じて、適切なステップのレスポンスを返してください。
+セキュリティに関する説明は具体的に、かつ重要性を強調してください。
 
-必ず上記のいずれかの形式の有効なJSONで応答してください。`;
+ユーザーのコマンド: "${command}"`;
 
   try {
     console.log('Sending prompt to Gemini...');
@@ -112,36 +158,79 @@ async function processWithOpenAI(command: string): Promise<string> {
     messages: [
       {
         role: "system",
-        content: `You are an AI assistant. Understand user's natural language input in Japanese and respond appropriately.
+        content: `You are a Web3 wallet creation specialist. Guide users through the wallet creation process in Japanese.
 
-For wallet-related questions or creation requests, respond with JSON in this format:
+Respond with JSON in one of these formats:
 
+1. Wallet Information:
 {
-  "message": "Explanation about wallet or creation guide",
+  "message": "Explanation about wallets",
   "ui": {
     "type": "select",
     "options": [
-      "ウォレットについてもっと詳しく",
       "ウォレットを作成する",
-      "セキュリティについて知りたい"
+      "セキュリティについて詳しく知りたい",
+      "他に質問がある"
     ]
   }
 }
 
-For general conversation, respond with JSON in this format:
+2. Start Creation:
+{
+  "message": "Wallet creation explanation and cautions",
+  "action": "CREATE_WALLET",
+  "step": "EXPLAIN",
+  "ui": {
+    "type": "select",
+    "options": [
+      "作成を開始する",
+      "もう少し詳しく知りたい",
+      "キャンセル"
+    ]
+  }
+}
 
+3. Confirm Creation:
+{
+  "message": "Important security confirmation",
+  "action": "CREATE_WALLET",
+  "step": "CONFIRM",
+  "ui": {
+    "type": "select",
+    "options": [
+      "理解して作成を続ける",
+      "キャンセル"
+    ]
+  }
+}
+
+4. Show Security Info:
+{
+  "message": "Created wallet information and backup instructions",
+  "action": "SHOW_SECURITY",
+  "step": "BACKUP",
+  "ui": {
+    "type": "select",
+    "options": [
+      "情報を保存した",
+      "もう一度確認する"
+    ]
+  }
+}
+
+5. General Conversation:
 {
   "message": "Conversation response",
   "ui": {
     "type": "select",
     "options": [
-      "Related questions or choices",
-      "ウォレットについて聞く"
+      "ウォレットを作成する",
+      "他の質問をする"
     ]
   }
 }
 
-Always respond in Japanese and include appropriate UI options for user interaction.`
+Always respond in Japanese and emphasize security importance.`
       },
       {
         role: "user",

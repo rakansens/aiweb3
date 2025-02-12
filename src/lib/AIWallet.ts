@@ -1,11 +1,18 @@
 import { ethers } from 'ethers';
+import { Network, Alchemy, AssetTransfersCategory } from 'alchemy-sdk';
 import type { AIAgentWallet } from '../../typechain-types/AIAgentWallet';
 import { AIAgentWallet__factory } from '../../typechain-types/factories/AIAgentWallet__factory';
+
+const settings = {
+  apiKey: process.env.NEXT_PUBLIC_ALCHEMY_API_KEY,
+  network: Network.ETH_SEPOLIA
+};
 
 export class AIWallet {
   private wallet: ethers.Wallet;
   private contract: AIAgentWallet;
   private provider: ethers.providers.JsonRpcProvider;
+  private alchemy: Alchemy;
 
   constructor(
     privateKey: string,
@@ -15,6 +22,56 @@ export class AIWallet {
     this.provider = provider;
     this.wallet = new ethers.Wallet(privateKey, provider);
     this.contract = AIAgentWallet__factory.connect(contractAddress, this.wallet);
+    this.alchemy = new Alchemy(settings);
+  }
+
+  // トランザクション履歴の取得
+  async getTransactionHistory(): Promise<any> {
+    return await this.alchemy.core.getAssetTransfers({
+      fromAddress: this.contract.address,
+      category: [
+        AssetTransfersCategory.EXTERNAL,
+        AssetTransfersCategory.INTERNAL,
+        AssetTransfersCategory.ERC20,
+        AssetTransfersCategory.ERC721,
+        AssetTransfersCategory.ERC1155
+      ],
+    });
+  }
+
+  // トークン残高の取得
+  async getTokenBalances(): Promise<any> {
+    return await this.alchemy.core.getTokenBalances(this.contract.address);
+  }
+
+  // イベントの監視
+  async subscribeToEvents(callback: (event: any) => void): Promise<void> {
+    const blockNumber = await this.provider.getBlockNumber();
+    console.log('Current block:', blockNumber);
+
+    // トランザクションイベントの監視
+    this.contract.on("TransactionExecuted", (to, value, event) => {
+      callback({
+        type: "TransactionExecuted",
+        to,
+        value: ethers.utils.formatEther(value),
+        event
+      });
+    });
+
+    // ロック状態変更イベントの監視
+    this.contract.on("WalletLocked", (locked, event) => {
+      callback({
+        type: "WalletLocked",
+        locked,
+        event
+      });
+    });
+  }
+
+  // 最新ブロックの取得
+  async getLatestBlock(): Promise<any> {
+    return await this.alchemy.core.getBlock("latest");
   }
 
   static async create(): Promise<AIWallet> {
