@@ -28,12 +28,31 @@ export class AIWallet {
     this.provider = provider;
     this.wallet = new ethers.Wallet(privateKey, provider);
     this.contract = AIAgentWallet__factory.connect(contractAddress, this.wallet);
+    // Alchemyインスタンスの設定を最適化
     this.alchemy = new Alchemy({
       ...settings,
-      // Alchemyの設定も最適化
+      // 基本的な設定のみ使用
       maxRetries: 0,
       requestTimeout: 30000
     });
+
+    // プロバイダーの設定を最適化
+    if (this.provider instanceof ethers.providers.JsonRpcProvider) {
+      // ポーリングを完全に無効化
+      this.provider.polling = false;
+      this.provider.pollingInterval = 0;
+
+      // 不要なイベントリスナーを削除
+      this.provider.removeAllListeners();
+      // エラーハンドリングのみ設定
+      this.provider.on('error', console.error);
+
+      // プロバイダーのオプションを設定
+      this.provider.connection.headers = {
+        ...this.provider.connection.headers,
+        'Cache-Control': 'max-age=300' // 5分のキャッシュ
+      };
+    }
   }
 
   // トランザクション履歴の取得
@@ -57,33 +76,58 @@ export class AIWallet {
 
   private eventListeners: { [key: string]: (...args: any[]) => void } = {};
 
-  // イベントの監視
+  // イベントの監視(最適化版)
   async subscribeToEvents(callback: (event: any) => void): Promise<void> {
-    const blockNumber = await this.provider.getBlockNumber();
-    console.log('Current block:', blockNumber);
+    // 既存のリスナーをクリーンアップ
+    this.unsubscribeFromEvents();
 
-    // トランザクションイベントの監視
-    const transactionHandler = (to: string, value: ethers.BigNumber, event: any) => {
-      callback({
-        type: "transaction",
-        to,
-        value: ethers.utils.formatEther(value),
-        event
-      });
+    // コントラクトのイベントをフィルターで監視
+    const filter = {
+      address: this.contract.address,
+      topics: [
+        ethers.utils.id("TransactionExecuted(address,uint256)"),
+        ethers.utils.id("WalletLocked(bool)")
+      ]
     };
-    this.eventListeners["TransactionExecuted"] = transactionHandler;
-    this.contract.on("TransactionExecuted", transactionHandler);
 
-    // ロック状態変更イベントの監視
-    const lockHandler = (locked: boolean, event: any) => {
-      callback({
-        type: "lock",
-        locked,
-        event
-      });
+    // イベント処理用の共通ハンドラ
+    const eventHandler = async (log: any) => {
+      try {
+        // イベントの種類をトピックから判断
+        const eventHash = log.topics[0];
+        const transactionExecutedHash = ethers.utils.id("TransactionExecuted(address,uint256)");
+        const walletLockedHash = ethers.utils.id("WalletLocked(bool)");
+
+        if (eventHash === transactionExecutedHash) {
+          const decoded = ethers.utils.defaultAbiCoder.decode(
+            ['address', 'uint256'],
+            ethers.utils.hexDataSlice(log.data, 0)
+          );
+          callback({
+            type: "transaction",
+            to: decoded[0],
+            value: ethers.utils.formatEther(decoded[1]),
+            event: log
+          });
+        } else if (eventHash === walletLockedHash) {
+          const decoded = ethers.utils.defaultAbiCoder.decode(
+            ['bool'],
+            ethers.utils.hexDataSlice(log.data, 0)
+          );
+          callback({
+            type: "lock",
+            locked: decoded[0],
+            event: log
+          });
+        }
+      } catch (error) {
+        console.error('Failed to parse event:', error);
+      }
     };
-    this.eventListeners["WalletLocked"] = lockHandler;
-    this.contract.on("WalletLocked", lockHandler);
+
+    // フィルターを使用してイベントを監視
+    this.provider.on(filter, eventHandler);
+    this.eventListeners["contractEvents"] = eventHandler;
   }
 
   // イベントの監視解除
