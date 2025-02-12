@@ -2,12 +2,12 @@ import type { AppProps } from 'next/app';
 import { WagmiConfig, createConfig, configureChains } from 'wagmi';
 import { sepolia } from 'wagmi/chains';
 import { MetaMaskConnector } from 'wagmi/connectors/metaMask';
-import { alchemyProvider } from 'wagmi/providers/alchemy';
+import { infuraProvider } from 'wagmi/providers/infura';
 import '../styles/globals.css';
 
 const { chains, publicClient, webSocketPublicClient } = configureChains(
   [sepolia],
-  [alchemyProvider({ apiKey: 'jxkFyiJ-qlBwDKJWfXUwP_2tKVYGQQAu' })]
+  [infuraProvider({ apiKey: '5c0a7b15c5094ef2af73e649b2d5f1a1' })]
 );
 
 const config = createConfig({

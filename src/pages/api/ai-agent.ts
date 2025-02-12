@@ -194,6 +194,8 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse<AIResponse | { error: string }>
 ) {
+  console.log('AI Agent Request:', req.body);
+  console.log('AI Provider:', process.env.AI_PROVIDER);
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
