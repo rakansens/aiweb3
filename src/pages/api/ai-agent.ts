@@ -132,6 +132,11 @@ function formatJsonString(input: string): string {
 }
 
 async function processWithGemini(command: string): Promise<string> {
+  if (!process.env.GEMINI_API_KEY) {
+    console.error('GEMINI_API_KEY is not set');
+    throw new Error('Gemini API key is not configured');
+  }
+
   const model = genAI.getGenerativeModel({ model: "gemini-pro" });
   console.log('Command received:', command);
   
@@ -174,8 +179,14 @@ async function processWithGemini(command: string): Promise<string> {
   try {
     console.log('Sending prompt to Gemini...');
     const result = await model.generateContent(prompt);
-    const response = await result.response;
+    if (!result.response) {
+      throw new Error('No response from Gemini');
+    }
+    const response = result.response;
     const text = response.text();
+    if (!text) {
+      throw new Error('Empty response from Gemini');
+    }
     console.log('Raw Gemini response:', text);
 
     const formattedJson = formatJsonString(text);
