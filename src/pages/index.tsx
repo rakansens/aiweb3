@@ -187,6 +187,14 @@ export default function Home() {
       if (action === 'ウォレットを作成したい') {
         try {
           const walletInfo = await wallet.createWallet();
+          
+          // ウォレットリストに追加
+          handleWalletCreated({
+            address: walletInfo.address,
+            privateKey: walletInfo.privateKey,
+            contractAddress: walletInfo.contractAddress
+          });
+
           setMessages(prev => [...prev, {
             role: 'assistant',
             content: `ウォレットを作成しました!\n\nアドレス: ${walletInfo.address}\n\n重要な情報は安全に保管してください。`,
