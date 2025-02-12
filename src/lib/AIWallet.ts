@@ -19,12 +19,21 @@ export class AIWallet {
     contractAddress: string,
     provider: ethers.providers.JsonRpcProvider
   ) {
-    // プロバイダーのポーリング間隔を無効化
+    // プロバイダーのポーリングを完全に無効化
     provider.polling = false;
+    provider.pollingInterval = 0;
+    // ブロックイベントの監視を無効化
+    provider.removeAllListeners('block');
+    
     this.provider = provider;
     this.wallet = new ethers.Wallet(privateKey, provider);
     this.contract = AIAgentWallet__factory.connect(contractAddress, this.wallet);
-    this.alchemy = new Alchemy(settings);
+    this.alchemy = new Alchemy({
+      ...settings,
+      // Alchemyの設定も最適化
+      maxRetries: 0,
+      requestTimeout: 30000
+    });
   }
 
   // トランザクション履歴の取得
