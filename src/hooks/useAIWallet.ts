@@ -25,7 +25,11 @@ export type WalletState = {
     isLoading: boolean;
   };
   estimatedGas: string | null;
-  processingStep: string | null;
+  processingStep: 'init' | 'contract' | 'security' | 'complete' | null;
+  creationProgress: {
+    step: string;
+    message: string;
+  } | null;
 };
 
 const INITIAL_STATE: WalletState = {
@@ -49,7 +53,8 @@ const INITIAL_STATE: WalletState = {
     isLoading: false
   },
   estimatedGas: null,
-  processingStep: null
+  processingStep: null,
+  creationProgress: null
 };
 
 // トランザクション型の定義
@@ -96,7 +101,16 @@ export const useAIWallet = () => {
       throw new Error('ウォレットは既に初期化されています');
     }
 
-    setState(prev => ({ ...prev, isCreating: true, error: null }));
+    setState(prev => ({
+      ...prev,
+      isCreating: true,
+      error: null,
+      processingStep: 'init',
+      creationProgress: {
+        step: 'init',
+        message: 'ウォレットの初期化中...'
+      }
+    }));
 
     try {
       const apiKey = process.env.NEXT_PUBLIC_ALCHEMY_API_KEY;
@@ -114,9 +128,27 @@ export const useAIWallet = () => {
         throw new Error('Sepoliaネットワークに接続できません');
       }
 
+      setState(prev => ({
+        ...prev,
+        processingStep: 'contract',
+        creationProgress: {
+          step: 'contract',
+          message: 'スマートコントラクトをデプロイ中...'
+        }
+      }));
+
       // ウォレット作成
       const aiWallet = await AIWallet.create();
       const randomWallet = ethers.Wallet.createRandom();
+
+      setState(prev => ({
+        ...prev,
+        processingStep: 'security',
+        creationProgress: {
+          step: 'security',
+          message: 'セキュリティ設定を適用中...'
+        }
+      }));
 
       // 状態を更新
       if (mountedRef.current) {
@@ -126,6 +158,11 @@ export const useAIWallet = () => {
           address: aiWallet.getAddress(),
           isInitialized: true,
           isCreating: false,
+          processingStep: 'complete',
+          creationProgress: {
+            step: 'complete',
+            message: 'ウォレットの作成が完了しました!'
+          },
           securityInfo: {
             privateKey: aiWallet.getPrivateKey(),
             mnemonic: randomWallet.mnemonic?.phrase || null,
@@ -152,6 +189,8 @@ export const useAIWallet = () => {
         setState(prev => ({
           ...prev,
           isCreating: false,
+          processingStep: null,
+          creationProgress: null,
           error: error instanceof Error ? error.message : '不明なエラーが発生しました',
         }));
       }

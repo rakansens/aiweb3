@@ -6,6 +6,7 @@ import { useAIWallet } from '../hooks/useAIWallet';
 import { useWalletList } from '../hooks/useWalletList';
 import { WalletInfoModal } from '../components/WalletInfoModal';
 import { WalletListModal } from '../components/WalletListModal';
+import { WalletCreationProgress } from '../components/WalletCreationProgress';
 
 // 拡張されたウォレットの型
 type ExtendedWalletState = ReturnType<typeof useAIWallet> & {
@@ -280,6 +281,11 @@ export default function Home() {
               onSwitchWallet={switchActiveWallet}
               onRenameWallet={renameWallet}
               onRemoveWallet={removeWallet}
+            />
+
+            <WalletCreationProgress
+              isCreating={wallet.isCreating}
+              currentStep={wallet.processingStep}
             />
 
             {/* ヘッダーボタン */}
