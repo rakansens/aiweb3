@@ -77,8 +77,8 @@ export class AIWallet {
   static async create(): Promise<AIWallet> {
     try {
       // Sepoliaネットワークに接続
-      if (!process.env.NEXT_PUBLIC_ALCHEMY_API_KEY) {
-        throw new Error('Alchemy APIキーが設定されていません');
+      if (!process.env.NEXT_PUBLIC_ALCHEMY_API_KEY || !process.env.NEXT_PUBLIC_ADMIN_PRIVATE_KEY) {
+        throw new Error('必要な環境変数が設定されていません');
       }
 
       const provider = new ethers.providers.JsonRpcProvider(
@@ -91,28 +91,45 @@ export class AIWallet {
         throw new Error('Sepoliaネットワークに接続できません');
       }
 
-      // 新しいウォレットを作成
-      const wallet = ethers.Wallet.createRandom().connect(provider);
+      // 新しいユーザーウォレットを作成
+      const userWallet = ethers.Wallet.createRandom().connect(provider);
       console.log('新しいウォレットを作成しました:');
-      console.log('アドレス:', wallet.address);
-      console.log('秘密鍵:', wallet.privateKey);
-      console.log('ニーモニック:', wallet.mnemonic?.phrase);
+      console.log('アドレス:', userWallet.address);
+      console.log('秘密鍵:', userWallet.privateKey);
+      console.log('ニーモニック:', userWallet.mnemonic?.phrase);
 
-      // スマートコントラクトをデプロイ
+      // 管理者ウォレットを設定
+      if (!process.env.NEXT_PUBLIC_ADMIN_PRIVATE_KEY) {
+        throw new Error('管理者の秘密鍵が設定されていません');
+      }
+      const adminWallet = new ethers.Wallet(process.env.NEXT_PUBLIC_ADMIN_PRIVATE_KEY, provider);
+      console.log('管理者ウォレットを使用:', adminWallet.address);
+
+      // スマートコントラクトをデプロイ (管理者ウォレットで)
       console.log('コントラクトをデプロイ中...');
-      const factory = new AIAgentWallet__factory(wallet);
+      const factory = new AIAgentWallet__factory(adminWallet);
       const dailyLimit = ethers.utils.parseEther('0.1'); // 0.1 ETH
-      const contract = await factory.deploy(wallet.address, dailyLimit);
+      
+      // デプロイ前にガス代を見積もり
+      const deployTx = factory.getDeployTransaction(userWallet.address, dailyLimit);
+      const deploymentGas = await factory.signer.estimateGas(deployTx as ethers.utils.Deferrable<ethers.providers.TransactionRequest>);
+      console.log('推定ガス代:', ethers.utils.formatEther(deploymentGas), 'ETH');
+
+      // コントラクトをデプロイ
+      const contract = await factory.deploy(userWallet.address, dailyLimit, {
+        gasLimit: deploymentGas.mul(120).div(100) // 20%のバッファを追加
+      });
       console.log('デプロイ完了を待機中...');
       await contract.deployed();
       console.log('コントラクトアドレス:', contract.address);
 
-      // 初期設定
-      const tx = await contract.updateWhitelist(wallet.address, true);
+      // 初期設定 (管理者ウォレットで)
+      const tx = await contract.connect(adminWallet).updateWhitelist(userWallet.address, true);
       await tx.wait();
       console.log('ウォレットをホワイトリストに追加しました');
 
-      return new AIWallet(wallet.privateKey, contract.address, provider);
+      // ユーザーウォレットで接続したインスタンスを返す
+      return new AIWallet(userWallet.privateKey, contract.address, provider);
     } catch (error) {
       console.error('AIウォレットの作成に失敗:', error);
       throw new Error('AIウォレットの作成に失敗しました: ' + (error instanceof Error ? error.message : String(error)));
