@@ -69,13 +69,35 @@ export default function Home() {
     privateKey: string;
     contractAddress: string;
   }) => {
-    addWallet({
+    console.log('Creating new wallet:', walletInfo);
+    const newWallet = addWallet({
       name: `ウォレット ${wallets.length + 1}`,
       address: walletInfo.address,
       contractAddress: walletInfo.contractAddress,
       privateKey: walletInfo.privateKey
     });
-  }, [addWallet, wallets.length]);
+    console.log('New wallet added:', newWallet);
+    
+    // ウォレットリストを表示
+    setIsWalletListOpen(true);
+  }, [addWallet, wallets.length, setIsWalletListOpen]);
+
+  // 初期ウォレットの読み込み
+  useEffect(() => {
+    const savedWallet = localStorage.getItem('aiWallet');
+    if (savedWallet) {
+      try {
+        const walletData = JSON.parse(savedWallet);
+        handleWalletCreated({
+          address: walletData.contractAddress,
+          privateKey: walletData.privateKey,
+          contractAddress: walletData.contractAddress
+        });
+      } catch (error) {
+        console.error('Failed to load saved wallet:', error);
+      }
+    }
+  }, [handleWalletCreated]);
 
   // ウォレットの状態が変更されたときにメッセージを追加
   useEffect(() => {
@@ -322,7 +344,7 @@ export default function Home() {
             <div className="space-y-6">
               {messages.map((message) => (
                 <div
-                  key={message.timestamp}
+                  key={`${message.timestamp}-${Math.random()}`}
                   className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'} mb-6`}
                 >
                   <div className="max-w-[80%]">
