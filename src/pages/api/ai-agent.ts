@@ -30,6 +30,13 @@ async function processWithGemini(command: string): Promise<string> {
   const prompt = `あなたはWeb3ウォレット作成と管理の専門アシスタントです。
   ユーザーの自然言語入力を理解し、ウォレットの作成と管理をサポートしてください。
   
+  重要: 選択肢はユーザーの会話コンテキストと現在の状況に応じて動的に生成してください。
+  固定の選択肢は避け、以下のような状況に応じて適切な選択肢を提示してください:
+
+  - ウォレット作成後: 残高確認、トランザクション履歴、セキュリティ設定など
+  - エラー発生時: トラブルシューティング、再試行、サポート情報など
+  - 一般的な質問: 具体的な説明の要求、関連する操作の提案など
+  
   以下のようなJSONフォーマットで応答してください:
   
   1. ウォレットについての説明や情報提供:
@@ -180,6 +187,13 @@ async function processWithOpenAI(command: string): Promise<string> {
       {
         role: "system",
         content: `You are a Web3 wallet creation specialist. Guide users through the wallet creation process in Japanese.
+
+Important: Generate options dynamically based on the conversation context and current situation.
+Avoid fixed options and provide appropriate choices based on:
+
+- After wallet creation: balance check, transaction history, security settings, etc.
+- When errors occur: troubleshooting steps, retry options, support information
+- For general questions: requests for detailed explanations, suggestions for related operations
 
 Respond with JSON in one of these formats:
 
