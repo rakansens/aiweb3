@@ -58,7 +58,7 @@ export const useWallet = () => {
                 symbol: 'ETH',
                 decimals: 18
               },
-              rpcUrls: ['https://rpc.sepolia.org'],
+              rpcUrls: ['https://eth-sepolia.g.alchemy.com/v2/jxkFyiJ-qlBwDKJWfXUwP_2tKVYGQQAu'],
               blockExplorerUrls: ['https://sepolia.etherscan.io']
             }]
           });
