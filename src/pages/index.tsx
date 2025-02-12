@@ -93,18 +93,23 @@ export default function Home() {
   }, [wallet.error]);
 
   useEffect(() => {
-    if (wallet.isInitialized) {
-      setMessages(prev => [...prev, {
-        role: 'assistant',
-        content: `ウォレットが初期化されました。\nアドレス: ${wallet.address}\n残高: ${wallet.balance} ETH`,
-        timestamp: Date.now(),
-        ui: {
-          type: 'select',
-          options: ['残高を確認', 'トランザクション履歴を見る']
-        }
-      }]);
+    if (wallet.isInitialized && !wallet.isCreating) {
+      const lastMessage = messages[messages.length - 1];
+      const isInitMessage = lastMessage?.content?.includes('ウォレットが初期化されました');
+      
+      if (!isInitMessage) {
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: `ウォレットが初期化されました。\nアドレス: ${wallet.address}\n残高: ${wallet.balance} ETH`,
+          timestamp: Date.now(),
+          ui: {
+            type: 'select',
+            options: ['残高を確認', 'トランザクション履歴を見る']
+          }
+        }]);
+      }
     }
-  }, [wallet.isInitialized, wallet.address, wallet.balance]);
+  }, [wallet.isInitialized, wallet.isCreating, messages]);
 
   // メッセージの初期化
   useEffect(() => {
