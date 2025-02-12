@@ -41,6 +41,15 @@ export const useWalletList = () => {
 
   // 新しいウォレットを追加
   const addWallet = (wallet: Omit<WalletInfo, 'id' | 'createdAt' | 'isActive'>) => {
+    // アドレスの重複チェック
+    const existingWallet = wallets.find(w => w.address === wallet.address);
+    if (existingWallet) {
+      console.log('Wallet already exists:', existingWallet);
+      // 既存のウォレットをアクティブに設定
+      switchActiveWallet(existingWallet.id);
+      return existingWallet;
+    }
+
     const newWallet: WalletInfo = {
       ...wallet,
       id: `wallet_${Date.now()}`,
@@ -55,6 +64,7 @@ export const useWalletList = () => {
       setActiveWalletId(newWallet.id);
     }
 
+    console.log('New wallet added:', newWallet);
     return newWallet;
   };
 
