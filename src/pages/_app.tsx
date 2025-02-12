@@ -1,25 +1,22 @@
 import type { AppProps } from 'next/app';
+import '../styles/globals.css';
 import { WagmiConfig, createConfig, configureChains } from 'wagmi';
 import { sepolia } from 'wagmi/chains';
 import { MetaMaskConnector } from 'wagmi/connectors/metaMask';
-import { infuraProvider } from 'wagmi/providers/infura';
-import '../styles/globals.css';
+import { alchemyProvider } from 'wagmi/providers/alchemy';
+import { publicProvider } from 'wagmi/providers/public';
 
 const { chains, publicClient, webSocketPublicClient } = configureChains(
   [sepolia],
-  [infuraProvider({ apiKey: '5c0a7b15c5094ef2af73e649b2d5f1a1' })]
+  [
+    alchemyProvider({ apiKey: 'YOUR-ALCHEMY-API-KEY' }), // AlchemyのAPIキーを設定
+    publicProvider() // フォールバックとしてpublicProviderを使用
+  ]
 );
 
 const config = createConfig({
   autoConnect: true,
-  connectors: [
-    new MetaMaskConnector({ 
-      chains,
-      options: {
-        shimDisconnect: true,
-      }
-    })
-  ],
+  connectors: [new MetaMaskConnector({ chains })],
   publicClient,
   webSocketPublicClient,
 });

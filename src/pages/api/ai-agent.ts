@@ -10,17 +10,18 @@ const openai = new OpenAI({
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 
 type AIResponse = {
-  action: string;
+  action: 'WALLET_SETUP' | 'SEND_TRANSACTION' | 'CHECK_BALANCE' | 'UNKNOWN';
   params?: {
     to?: string;
     value?: string;
     data?: string;
-    step?: string;
+    step?: 'create' | 'backup' | 'confirm' | 'input_address' | 'input_amount';
+    operation?: '新規作成' | 'バックアップ' | 'リストア';
     needConfirmation?: boolean;
   };
   message: string;
   ui?: {
-    type: 'input' | 'confirm';
+    type: 'input' | 'confirm' | 'select' | 'info';
     placeholder?: string;
     options?: string[];
   };
@@ -29,7 +30,16 @@ type AIResponse = {
 function formatJsonString(input: string): string {
   const defaultResponse = {
     action: "UNKNOWN",
-    message: "コマンドを理解できませんでした。\n例: ETHを送金したい"
+    message: "コマンドを理解できませんでした。\n例: ETHを送金したい",
+    ui: {
+      type: "select",
+      options: [
+        "新しいウォレットを作成",
+        "ETHを送金する",
+        "残高を確認する",
+        "ウォレットをバックアップ"
+      ]
+    }
   };
 
   try {
@@ -59,6 +69,50 @@ function formatJsonString(input: string): string {
     if (!parsed.action || !parsed.message) {
       console.log('Missing required fields, using default response');
       return JSON.stringify(defaultResponse);
+    }
+
+    if (parsed.action === 'WALLET_SETUP') {
+      if (!parsed.params?.step) {
+        return JSON.stringify({
+          action: "WALLET_SETUP",
+          params: { step: "create" },
+          message: "新しいウォレットを作成しますか?\n\n作成すると、以下の情報が生成されます:\n- ウォレットアドレス\n- 秘密鍵\n- ニーモニックフレーズ\n\n※重要: これらの情報は必ずバックアップしてください。",
+          ui: {
+            type: "select",
+            options: ["新規作成を開始", "既存のウォレットを使用", "キャンセル"]
+          }
+        });
+      }
+
+      if (parsed.params.step === "create") {
+        return JSON.stringify({
+          action: "WALLET_SETUP",
+          params: { 
+            step: "confirm",
+            operation: "新規作成"
+          },
+          message: "ウォレットを作成します。以下の点に注意してください:\n\n1. 生成された情報は安全な場所に保管\n2. 秘密鍵は誰にも共有しない\n3. ニーモニックフレーズをバックアップ\n\n準備ができたら「作成開始」を選択してください。",
+          ui: {
+            type: "select",
+            options: ["作成開始", "キャンセル"]
+          }
+        });
+      }
+
+      if (parsed.params.step === "backup") {
+        return JSON.stringify({
+          action: "WALLET_SETUP",
+          params: {
+            step: "confirm",
+            operation: "バックアップ"
+          },
+          message: "現在のウォレット情報をバックアップします。\n表示される情報を安全な場所に保存してください。",
+          ui: {
+            type: "select",
+            options: ["バックアップを表示", "キャンセル"]
+          }
+        });
+      }
     }
 
     if (parsed.action === 'SEND_TRANSACTION') {
@@ -114,6 +168,10 @@ function formatJsonString(input: string): string {
       return JSON.stringify({
         action: "CHECK_BALANCE",
         message: "現在の残高を表示します。",
+        ui: {
+          type: "select",
+          options: ["送金する", "履歴を見る", "戻る"]
+        }
       });
     }
 
@@ -141,15 +199,43 @@ async function processWithGemini(command: string): Promise<string> {
   console.log('Command received:', command);
   
   const prompt = `あなたはWeb3ウォレットのAIアシスタントです。
-以下のコマンドに対して、指定された形式で応答してください。
+ユーザーの自然言語入力を理解し、適切なアクションを提案してください。
 
-残高確認の場合(例: "残高確認"、"残高教えて"など):
+以下のアクションに対応します:
+
+1. ウォレット作成・管理:
 {
-  "action": "CHECK_BALANCE",
-  "message": "現在の残高を表示します。"
+  "action": "WALLET_SETUP",
+  "params": {
+    "step": "create" | "backup" | "confirm",
+    "operation": "新規作成" | "バックアップ" | "リストア"
+  },
+  "message": "ガイド用メッセージ",
+  "ui": {
+    "type": "select",
+    "options": [
+      "新しいウォレットを作成",
+      "既存のウォレットをリストア",
+      "ウォレットのバックアップ"
+    ]
+  }
 }
 
-送金の場合(例: "送金したい"、"ETHを送る"など):
+2. 残高確認:
+{
+  "action": "CHECK_BALANCE",
+  "message": "現在の残高を表示します。",
+  "ui": {
+    "type": "select",
+    "options": [
+      "送金する",
+      "履歴を見る",
+      "戻る"
+    ]
+  }
+}
+
+3. 送金操作:
 {
   "action": "SEND_TRANSACTION",
   "params": {
@@ -160,16 +246,25 @@ async function processWithGemini(command: string): Promise<string> {
   },
   "message": "対話的なメッセージ",
   "ui": {
-    "type": "input" | "confirm",
+    "type": "input" | "confirm" | "select",
     "placeholder": "入力プレースホルダー",
-    "options": ["選択肢1", "選択肢2"]
+    "options": ["送金を実行", "金額を修正", "キャンセル"]
   }
 }
 
-不明なコマンドの場合:
+4. 不明なコマンドの場合:
 {
   "action": "UNKNOWN",
-  "message": "申し訳ありません。以下のようなコマンドを使用してください:\\n- 残高を確認して\\n- ETHを送金したい"
+  "message": "以下の操作から選択してください",
+  "ui": {
+    "type": "select",
+    "options": [
+      "新しいウォレットを作成",
+      "ETHを送金する",
+      "残高を確認する",
+      "ウォレットをバックアップ"
+    ]
+  }
 }
 
 ユーザーのコマンド: "${command}"
@@ -196,7 +291,16 @@ async function processWithGemini(command: string): Promise<string> {
     console.error('Gemini API Error:', error);
     return JSON.stringify({
       action: "UNKNOWN",
-      message: "申し訳ありません。コマンドを理解できませんでした。以下のようなコマンドを試してください:\n- 残高を確認して\n- ETHを送金したい"
+      message: "申し訳ありません。コマンドを理解できませんでした。以下のようなコマンドを試してください:\n- 残高を確認して\n- ETHを送金したい",
+      ui: {
+        type: "select",
+        options: [
+          "新しいウォレットを作成",
+          "ETHを送金する",
+          "残高を確認する",
+          "ウォレットをバックアップ"
+        ]
+      }
     });
   }
 }
@@ -247,7 +351,16 @@ export default async function handler(
       console.error('Error parsing AI response:', error);
       return res.status(500).json({
         action: 'UNKNOWN',
-        message: '申し訳ありません。コマンドを正しく解釈できませんでした。'
+        message: '申し訳ありません。コマンドを正しく解釈できませんでした。',
+        ui: {
+          type: "select",
+          options: [
+            "新しいウォレットを作成",
+            "ETHを送金する",
+            "残高を確認する",
+            "ウォレットをバックアップ"
+          ]
+        }
       });
     }
 
@@ -263,22 +376,75 @@ async function processWithOpenAI(command: string): Promise<string> {
     messages: [
       {
         role: "system",
-        content: `You are an AI assistant for a Web3 wallet. Parse user commands and respond with JSON in the following format:
-        {
-          "action": "SEND_TRANSACTION" | "CHECK_BALANCE" | "UNKNOWN",
-          "params": {
-            "step": "input_address" | "input_amount" | "confirm",
-            "to": "ethereum_address",
-            "value": "amount_in_eth",
-            "data": "hex_data"
-          },
-          "message": "human readable response",
-          "ui": {
-            "type": "input" | "confirm",
-            "placeholder": "input placeholder",
-            "options": ["option1", "option2"]
-          }
-        }`
+        content: `You are an AI assistant for a Web3 wallet. Understand user's natural language input in Japanese and suggest appropriate actions.
+
+For any input, respond with JSON in one of the following formats:
+
+1. Wallet Setup:
+{
+  "action": "WALLET_SETUP",
+  "params": {
+    "step": "create" | "backup" | "confirm",
+    "operation": "新規作成" | "バックアップ" | "リストア"
+  },
+  "message": "ガイド用メッセージ",
+  "ui": {
+    "type": "select",
+    "options": [
+      "新しいウォレットを作成",
+      "既存のウォレットをリストア",
+      "ウォレットをバックアップ"
+    ]
+  }
+}
+
+2. Balance Check:
+{
+  "action": "CHECK_BALANCE",
+  "message": "現在の残高を表示します。",
+  "ui": {
+    "type": "select",
+    "options": [
+      "送金する",
+      "履歴を見る",
+      "戻る"
+    ]
+  }
+}
+
+3. Send Transaction:
+{
+  "action": "SEND_TRANSACTION",
+  "params": {
+    "step": "input_address" | "input_amount" | "confirm",
+    "to": "送金先アドレス(あれば)",
+    "value": "送金額(ETH)(あれば)",
+    "data": "0x"
+  },
+  "message": "対話的なメッセージ",
+  "ui": {
+    "type": "input" | "confirm" | "select",
+    "placeholder": "入力プレースホルダー",
+    "options": ["送金を実行", "金額を修正", "キャンセル"]
+  }
+}
+
+4. Unknown Command:
+{
+  "action": "UNKNOWN",
+  "message": "以下の操作から選択してください",
+  "ui": {
+    "type": "select",
+    "options": [
+      "新しいウォレットを作成",
+      "ETHを送金する",
+      "残高を確認する",
+      "ウォレットをバックアップ"
+    ]
+  }
+}
+
+Always respond in Japanese and include appropriate UI options for user interaction.`
       },
       {
         role: "user",

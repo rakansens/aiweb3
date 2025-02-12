@@ -1,65 +1,112 @@
-import { useState, useEffect, useRef } from 'react';
-import { ethers } from 'ethers';
-import { useWallet } from '../hooks/useWallet';
+'use client';
+
+import { useState, useRef, useEffect, useCallback } from 'react';
+import { useAIWallet } from '../hooks/useAIWallet';
 import { useAICommand } from '../hooks/useAICommand';
-import type { MetaMaskInpageProvider } from "@metamask/providers";
 
 type Message = {
   role: 'assistant' | 'user' | 'system';
   content: string;
   timestamp: number;
   ui?: {
-    type: 'input' | 'confirm';
+    type: 'input' | 'confirm' | 'select' | 'info';
     placeholder?: string;
     options?: string[];
   };
 };
 
-type Conversation = {
-  id: string;
-  title: string;
-  timestamp: number;
-  messages: Message[];
+const INITIAL_MESSAGE: Message = {
+  role: 'system',
+  content: 'AIウォレットへようこそ!\n\n以下の操作から選択してください:',
+  timestamp: Date.now(),
+  ui: {
+    type: 'select',
+    options: [
+      '新しいウォレットを作成',
+      'ETHを送金する',
+      '残高を確認する',
+      'ウォレットをバックアップ'
+    ]
+  }
 };
 
 export default function Home() {
-  const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [currentConversation, setCurrentConversation] = useState<string | null>(null);
-  const [provider, setProvider] = useState<ethers.providers.Web3Provider | undefined>();
-  const { address, ensName, isConnected, balance, connect, disconnect } = useWallet();
-  const [command, setCommand] = useState('');
-  const { processCommand, isProcessing, error } = useAICommand(provider);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const wallet = useAIWallet();
+  const {
+    address,
+    balance,
+    dailyLimit,
+    dailySpent,
+    isLocked,
+    isInitialized,
+    executeTransaction,
+    toggleLock,
+    refreshState
+  } = wallet;
 
+  const { processCommand, isProcessing } = useAICommand(
+    { address, balance, dailyLimit, dailySpent, isLocked, isInitialized },
+    executeTransaction
+  );
+
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [command, setCommand] = useState('');
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [isFirstRender, setIsFirstRender] = useState(true);
+
+  // メッセージの初期化と状態監視
   useEffect(() => {
-    const initializeProvider = async () => {
-      if (typeof window !== 'undefined' && window.ethereum) {
-        try {
-          const ethereum = window.ethereum as MetaMaskInpageProvider;
-          const web3Provider = new ethers.providers.Web3Provider(
-            ethereum as unknown as ethers.providers.ExternalProvider,
-            'any'
-          );
-          setProvider(web3Provider);
-        } catch (error) {
-          console.error('Failed to initialize Web3Provider:', error);
-        }
+    let mounted = true;
+
+    const initializeMessages = () => {
+      if (isFirstRender) {
+        setMessages([INITIAL_MESSAGE]);
+        setIsFirstRender(false);
       }
     };
 
-    initializeProvider();
-  }, []);
+    const updateWalletState = () => {
+      if (!mounted || !isInitialized) return;
 
-  useEffect(() => {
-    if (conversations.length === 0) {
-      startNewConversation();
-    }
-  }, []);
+      const lastMessage = messages[messages.length - 1];
+      if (lastMessage?.content?.includes('ウォレットの状態')) return;
 
-  useEffect(() => {
+      // ウォレット情報の更新メッセージを追加
+      const walletStateMessage = {
+        role: 'system' as const,
+        content: `ウォレットの状態:\n\n残高: ${balance} ETH\n日次制限: ${dailyLimit} ETH\n本日の使用額: ${dailySpent} ETH\nロック状態: ${isLocked ? 'ロック中' : 'アンロック中'}`,
+        timestamp: Date.now(),
+        ui: {
+          type: 'select' as const,
+          options: ['送金する', '残高を更新', 'ロック設定を変更']
+        }
+      };
+
+      // 最後のメッセージがウォレット作成関連の場合は追加しない
+      const skipUpdate = lastMessage?.content?.includes('ウォレットを作成') ||
+                        lastMessage?.content?.includes('秘密鍵を安全な場所に保存');
+
+      if (!skipUpdate) {
+        setMessages(prev => [...prev, walletStateMessage]);
+      }
+    };
+
+    initializeMessages();
+    updateWalletState();
+
+    return () => {
+      mounted = false;
+    };
+  }, [isFirstRender, isInitialized, balance, dailyLimit, dailySpent, isLocked, messages]);
+
+  // スクロール処理
+  const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, []);
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages, scrollToBottom]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -70,290 +117,271 @@ export default function Home() {
       content: command,
       timestamp: Date.now(),
     };
-    const updatedMessages = [...messages, userMessage];
-    setMessages(updatedMessages);
-    
-    setConversations(prev => prev.map(conv =>
-      conv.id === currentConversation
-        ? { ...conv, messages: updatedMessages }
-        : conv
-    ));
-    setCommand('');
 
     try {
       const response = await processCommand(command);
-      const assistantMessage: Message = {
-        role: 'assistant',
-        content: response.success 
-          ? response.message
-          : `エラー: ${response.error}`,
-        timestamp: Date.now(),
-        ui: response.ui,
-      };
-      const finalMessages = [...updatedMessages, assistantMessage];
-      setMessages(finalMessages);
-      
-      setConversations(prev => prev.map(conv =>
-        conv.id === currentConversation
-          ? { ...conv, messages: finalMessages }
-          : conv
-      ));
+      setMessages(prev => [
+        ...prev,
+        userMessage,
+        {
+          role: 'assistant',
+          content: response.message,
+          timestamp: Date.now(),
+          ui: {
+            type: 'select',
+            options: response.ui?.options || [
+              '新しいウォレットを作成',
+              'ETHを送金する',
+              '残高を確認する',
+              'ウォレットをバックアップ'
+            ]
+          }
+        }
+      ]);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : '不明なエラーが発生しました';
-      const assistantMessage: Message = {
-        role: 'assistant',
-        content: `エラー: ${errorMessage}`,
-        timestamp: Date.now(),
-      };
-      const finalMessages = [...updatedMessages, assistantMessage];
-      setMessages(finalMessages);
-      
-      setConversations(prev => prev.map(conv =>
-        conv.id === currentConversation
-          ? { ...conv, messages: finalMessages }
-          : conv
-      ));
+      setMessages(prev => [
+        ...prev,
+        userMessage,
+        {
+          role: 'assistant',
+          content: `エラー: ${errorMessage}`,
+          timestamp: Date.now(),
+          ui: {
+            type: 'select',
+            options: ['最初からやり直す', 'ヘルプを見る']
+          }
+        }
+      ]);
     }
+    setCommand('');
   };
 
   const handleUIAction = async (action: string, value?: string) => {
-    if (!value && action !== '送金を実行') return;
+    try {
+      // 特別なアクションの処理
+      if (action === 'ロック設定を変更') {
+        await toggleLock();
+        return;
+      }
 
-    const lastMessage = messages[messages.length - 1];
-    if (!lastMessage?.ui) return;
+      if (value) {
+        // 送金処理
+        try {
+          await executeTransaction(value, action);
+          setMessages(prev => [...prev, {
+            role: 'system',
+            content: `送金が完了しました: ${action} ETH -> ${value}`,
+            timestamp: Date.now(),
+            ui: {
+              type: 'select',
+              options: ['別の送金を行う', '残高を確認する', '終了']
+            }
+          }]);
+          await refreshState();
+          return;
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : '不明なエラーが発生しました';
+          setMessages(prev => [...prev, {
+            role: 'system',
+            content: `送金エラー: ${errorMessage}`,
+            timestamp: Date.now(),
+            ui: {
+              type: 'select',
+              options: ['やり直す', '最初に戻る']
+            }
+          }]);
+          return;
+        }
+      }
 
-    let nextCommand = '';
-    if (lastMessage.ui.type === 'input') {
-      nextCommand = value || '';
-    } else if (lastMessage.ui.type === 'confirm' && action === '送金を実行') {
-      nextCommand = 'confirm';
+      // アクションをコマンドに変換
+      const actionToCommand: { [key: string]: string } = {
+        '新しいウォレットを作成': 'ウォレットを新規作成',
+        '新規作成': 'ウォレットを新規作成',
+        'ETHを送金する': 'ETHを送金したい',
+        '送金する': 'ETHを送金したい',
+        '残高を確認する': '残高を確認',
+        '残高を更新': '残高を確認',
+        'ウォレットをバックアップ': 'ウォレットのバックアップ'
+      };
+
+      const command = actionToCommand[action];
+      if (!command) return;
+
+      // ユーザーアクションをメッセージに追加
+      setMessages(prev => [...prev, {
+        role: 'user',
+        content: action,
+        timestamp: Date.now()
+      }]);
+
+      // コマンドを処理
+      const response = await processCommand(command);
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: response.message,
+        timestamp: Date.now(),
+        ui: {
+          type: 'select',
+          options: response.ui?.options || [
+            '新しいウォレットを作成',
+            'ETHを送金する',
+            '残高を確認する',
+            'ウォレットをバックアップ'
+          ]
+        }
+      }]);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : '不明なエラーが発生しました';
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: `エラー: ${errorMessage}`,
+        timestamp: Date.now(),
+        ui: {
+          type: 'select',
+          options: ['最初からやり直す', 'ヘルプを見る']
+        }
+      }]);
     }
-
-    if (nextCommand) {
-      await handleSubmit({
-        preventDefault: () => {},
-      } as React.FormEvent);
-    }
-  };
-
-  const getCurrentConversation = () => {
-    return conversations.find(c => c.id === currentConversation);
-  };
-
-  useEffect(() => {
-    const current = getCurrentConversation();
-    if (current) {
-      setMessages(current.messages);
-    }
-  }, [currentConversation]);
-
-  const startNewConversation = () => {
-    const initialMessage: Message = {
-      role: 'system',
-      content: 'Web3ウォレットへようこそ!ウォレットを接続して、自然言語でトランザクションを実行できます。',
-      timestamp: Date.now(),
-    };
-    const newConversation: Conversation = {
-      id: Date.now().toString(),
-      title: '新しい会話',
-      timestamp: Date.now(),
-      messages: [initialMessage],
-    };
-    setConversations(prev => [newConversation, ...prev]);
-    setCurrentConversation(newConversation.id);
-    setMessages(newConversation.messages);
   };
 
   return (
     <div className="flex h-screen bg-gray-50">
       <div className="flex-1 flex flex-col">
-        <nav className="bg-white border-b border-gray-200">
-          <div className="max-w-[1400px] mx-auto h-16 px-4 flex items-center justify-between">
-            <div className="flex items-center gap-8">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 bg-green-500 rounded-lg flex items-center justify-center">
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-white" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clipRule="evenodd" />
-                  </svg>
-                </div>
-                <h1 className="text-xl font-semibold text-gray-900">Super Chat</h1>
-              </div>
-              <div className="h-6 w-px bg-gray-200"></div>
-              <div className="flex items-center gap-8">
-                <button className="text-gray-900 text-sm font-medium px-3 relative after:absolute after:bottom-[-20px] after:left-0 after:w-full after:h-0.5 after:bg-gray-900">My Project</button>
-                <button className="text-gray-500 hover:text-gray-900 text-sm font-medium px-3">Brand Voice</button>
-                <button className="text-gray-500 hover:text-gray-900 text-sm font-medium px-3">Templates</button>
-                <button className="text-gray-500 hover:text-gray-900 text-sm font-medium px-3">Tools</button>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              {isConnected ? (
-                <button
-                  onClick={() => disconnect()}
-                  className="px-3 py-1.5 text-sm text-red-600 border border-red-200 rounded-lg hover:bg-red-50"
-                >
-                  切断
-                </button>
-              ) : (
-                <button
-                  onClick={() => connect()}
-                  className="px-3 py-1.5 text-sm text-white bg-green-500 rounded-lg hover:bg-green-600"
-                >
-                  ウォレット接続
-                </button>
-              )}
-            </div>
-          </div>
-        </nav>
-
-        <div className="flex flex-1 overflow-hidden">
-          <div className="flex-1 flex flex-col">
-            <div className="flex-1 overflow-y-auto bg-white">
-              <div className="max-w-[900px] mx-auto w-full h-full py-8 px-6">
-                <div className="min-h-[calc(100%-8rem)] flex flex-col space-y-6">
-                  {conversations.length === 0 && (
-                    <div className="flex-1 flex flex-col items-center justify-center text-gray-500 space-y-4">
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                      </svg>
-                      <p>新規会話を開始してください</p>
-                    </div>
-                  )}
-                  <div className="space-y-4">
-                    {messages.map((message) => (
-                      <div
-                        key={message.timestamp}
-                        className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
-                      >
-                        <div
-                          className={`max-w-[80%] rounded-2xl px-6 py-3 ${
-                            message.role === 'user'
-                              ? 'bg-green-500 text-white shadow-sm'
-                              : message.role === 'system'
-                              ? 'bg-gray-100 text-gray-600'
-                              : 'bg-white border border-gray-200 text-gray-800 shadow-sm'
-                          }`}
-                        >
-                          <div className="whitespace-pre-wrap">{message.content}</div>
-                          {message.ui && (
-                            <div className="mt-4">
-                              {message.ui.type === 'input' && (
-                                <div className="flex gap-2">
-                                  <input
-                                    type="text"
-                                    placeholder={message.ui.placeholder}
-                                    className="flex-1 px-3 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-green-500"
-                                    onKeyDown={(e) => {
-                                      if (e.key === 'Enter') {
-                                        handleUIAction('input', e.currentTarget.value);
-                                      }
-                                    }}
-                                  />
-                                </div>
-                              )}
-                              {message.ui.type === 'confirm' && message.ui.options && (
-                                <div className="flex gap-2 mt-2">
-                                  {message.ui.options.map((option) => (
-                                    <button
-                                      key={option}
-                                      onClick={() => handleUIAction(option)}
-                                      className={`px-4 py-2 rounded-lg text-sm font-medium ${
-                                        option === '送金を実行'
-                                          ? 'bg-green-500 text-white hover:bg-green-600'
-                                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                                      }`}
-                                    >
-                                      {option}
-                                    </button>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    ))}
+        {/* メインコンテンツ */}
+        <div className="flex-1 overflow-y-auto bg-white">
+          <div className="max-w-[800px] mx-auto w-full h-full py-8 px-6">
+            {/* ウォレット情報 */}
+            {isInitialized && (
+              <div className="mb-8 p-6 bg-gray-50 rounded-xl border border-gray-100 shadow-sm">
+                <div className="grid grid-cols-2 gap-6">
+                  <div>
+                    <div className="text-sm text-gray-500 mb-1">アドレス</div>
+                    <div className="text-sm font-medium text-gray-900 truncate">{address}</div>
                   </div>
-                  <div ref={messagesEndRef} />
+                  <div>
+                    <div className="text-sm text-gray-500 mb-1">残高</div>
+                    <div className="text-lg font-semibold text-gray-900">{balance} ETH</div>
+                  </div>
+                  <div>
+                    <div className="text-sm text-gray-500 mb-1">日次制限</div>
+                    <div className="text-sm font-medium text-gray-900">{dailyLimit} ETH</div>
+                  </div>
+                  <div>
+                    <div className="text-sm text-gray-500 mb-1">本日の使用額</div>
+                    <div className="text-sm font-medium text-gray-900">{dailySpent} ETH</div>
+                  </div>
                 </div>
-              </div>
-            </div>
-
-            <div className="border-t border-gray-200 bg-white">
-              <div className="max-w-[900px] mx-auto px-6 py-4">
-                <form onSubmit={handleSubmit} className="flex gap-3">
-                  <input
-                    type="text"
-                    value={command}
-                    onChange={(e) => setCommand(e.target.value)}
-                    placeholder={isConnected ? '例: ETHを送金したい' : 'ウォレットを接続してください'}
-                    className="flex-1 px-4 py-3 rounded-xl border border-gray-200 bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                    disabled={!isConnected || isProcessing}
-                  />
+                <div className="mt-4 flex justify-end">
                   <button
-                    type="submit"
-                    disabled={!isConnected || isProcessing}
-                    className="px-6 py-3 bg-green-500 text-white rounded-xl hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                    onClick={toggleLock}
+                    className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors shadow-sm ${
+                      isLocked
+                        ? 'bg-red-100 text-red-700 hover:bg-red-200'
+                        : 'bg-green-100 text-green-700 hover:bg-green-200'
+                    }`}
                   >
-                    {isProcessing ? '処理中...' : '送信'}
+                    {isLocked ? 'ロック解除' : 'ロック'}
                   </button>
-                </form>
-              </div>
-            </div>
-          </div>
-
-          <div className="w-[320px] border-l border-gray-200 bg-gray-50 overflow-y-auto flex flex-col">
-            <div className="p-4 border-b border-gray-200">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-base font-semibold text-gray-900">History Chat</h2>
-                <button className="text-gray-500 hover:text-gray-900">
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
-                  </svg>
-                </button>
-              </div>
-              <button
-                onClick={startNewConversation}
-                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 transition-colors text-sm font-medium text-gray-700"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                </svg>
-                新規会話
-              </button>
-            </div>
-
-            <div className="px-2 py-1 space-y-1 flex-1">
-              {conversations.map(conv => (
-                <button
-                  key={conv.id}
-                  onClick={() => setCurrentConversation(conv.id)}
-                  className={`w-full text-left px-4 py-3 rounded-lg transition-colors ${
-                    currentConversation === conv.id
-                      ? 'bg-white shadow-sm border border-gray-200'
-                      : 'hover:bg-gray-100'
-                  }`}
-                >
-                  <div className="text-sm text-gray-900">{conv.title}</div>
-                  <div className="text-xs text-gray-500">
-                    {new Date(conv.timestamp).toLocaleDateString()}
-                  </div>
-                </button>
-              ))}
-            </div>
-
-            {isConnected && (
-              <div className="p-4 border-t border-gray-200">
-                <div className="space-y-2">
-                  <div className="text-sm text-gray-500 truncate">
-                    {ensName || address}
-                  </div>
-                  <div className="text-sm font-medium text-gray-900">
-                    {balance ? `${Number(ethers.utils.formatEther(balance.value)).toFixed(4)} ETH` : '0 ETH'}
-                  </div>
                 </div>
               </div>
             )}
+
+            {/* メッセージ履歴 */}
+            <div className="space-y-6">
+              {messages.map((message) => (
+                <div
+                  key={message.timestamp}
+                  className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'} mb-6`}
+                >
+                  <div className="max-w-[80%]">
+                    {/* メッセージヘッダー */}
+                    <div className="text-xs text-gray-500 mb-1 px-2">
+                      {message.role === 'user' ? 'あなた' : 'AIアシスタント'}
+                    </div>
+
+                    {/* メッセージ本文 */}
+                    <div
+                      className={`rounded-2xl px-6 py-4 shadow-sm ${
+                        message.role === 'user'
+                          ? 'bg-green-500 text-white'
+                          : message.role === 'system'
+                          ? 'bg-blue-50 text-gray-600'
+                          : 'bg-white border border-gray-100 text-gray-800'
+                      }`}
+                    >
+                      <div className="whitespace-pre-wrap text-sm">{message.content}</div>
+
+                      {/* UI要素 */}
+                      {message.ui && (
+                        <div className="mt-4 space-y-3">
+                          {message.ui.type === 'input' && (
+                            <div className="relative">
+                              <input
+                                type="text"
+                                placeholder={message.ui.placeholder}
+                                className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-green-500 text-gray-900"
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    handleUIAction('input', e.currentTarget.value);
+                                  }
+                                }}
+                              />
+                            </div>
+                          )}
+                          {(message.ui.type === 'select' || message.ui.type === 'confirm') && message.ui.options && (
+                            <div className="flex flex-wrap gap-2">
+                              {message.ui.options.map((option) => (
+                                <button
+                                  key={option}
+                                  onClick={() => handleUIAction(option)}
+                                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-all shadow-sm hover:shadow ${
+                                    option.includes('送金') || option.includes('作成') || option === '新規作成'
+                                      ? 'bg-green-500 text-white hover:bg-green-600'
+                                      : option.includes('キャンセル') || option.includes('やり直す')
+                                      ? 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                      : option.includes('確認') || option.includes('更新')
+                                      ? 'bg-blue-50 text-blue-700 hover:bg-blue-100'
+                                      : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50'
+                                  }`}
+                                >
+                                  {option}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+              <div ref={messagesEndRef} />
+            </div>
+          </div>
+        </div>
+
+        {/* 入力フォーム */}
+        <div className="border-t border-gray-200 bg-white shadow-sm">
+          <div className="max-w-[800px] mx-auto px-6 py-4">
+            <form onSubmit={handleSubmit} className="flex gap-3">
+              <input
+                type="text"
+                value={command}
+                onChange={(e) => setCommand(e.target.value)}
+                placeholder="自然言語で指示してください(例: ETHを送金したい)"
+                className="flex-1 px-4 py-3 rounded-xl border border-gray-200 bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent shadow-sm"
+                disabled={isProcessing}
+              />
+              <button
+                type="submit"
+                disabled={isProcessing}
+                className="px-6 py-3 bg-green-500 text-white rounded-xl hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
+              >
+                {isProcessing ? '処理中...' : '送信'}
+              </button>
+            </form>
           </div>
         </div>
       </div>
