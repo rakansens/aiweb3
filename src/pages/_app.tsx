@@ -1,22 +1,19 @@
 import type { AppProps } from 'next/app';
-import { WagmiConfig, createConfig, configureChains } from 'wagmi';
+import { WagmiConfig, createConfig } from 'wagmi';
 import { mainnet, sepolia } from 'wagmi/chains';
-import { publicProvider } from 'wagmi/providers/public';
 import { MetaMaskConnector } from 'wagmi/connectors/metaMask';
+import { createPublicClient, http } from 'viem';
 import '../styles/globals.css';
-
-const { chains, publicClient, webSocketPublicClient } = configureChains(
-  [mainnet, sepolia],
-  [publicProvider()]
-);
 
 const config = createConfig({
   autoConnect: false,
-  publicClient,
-  webSocketPublicClient,
+  publicClient: createPublicClient({
+    chain: sepolia,
+    transport: http('https://rpc.sepolia.org')
+  }),
   connectors: [
     new MetaMaskConnector({
-      chains,
+      chains: [sepolia],
       options: {
         shimDisconnect: true,
         UNSTABLE_shimOnConnectSelectAccount: true,
