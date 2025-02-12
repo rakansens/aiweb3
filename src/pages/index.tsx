@@ -2,11 +2,17 @@ import { useState, useEffect, useRef } from 'react';
 import { ethers } from 'ethers';
 import { useWallet } from '../hooks/useWallet';
 import { useAICommand } from '../hooks/useAICommand';
+import type { MetaMaskInpageProvider } from "@metamask/providers";
 
 type Message = {
   role: 'assistant' | 'user' | 'system';
   content: string;
   timestamp: number;
+  ui?: {
+    type: 'input' | 'confirm';
+    placeholder?: string;
+    options?: string[];
+  };
 };
 
 type Conversation = {
@@ -23,14 +29,26 @@ export default function Home() {
   const { address, ensName, isConnected, balance, connect, disconnect } = useWallet();
   const [command, setCommand] = useState('');
   const { processCommand, isProcessing, error } = useAICommand(provider);
-  const [messages, setMessages] = useState<Message[]>([
-  ]);
+  const [messages, setMessages] = useState<Message[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (typeof window !== 'undefined' && window.ethereum) {
-      setProvider(new ethers.providers.Web3Provider(window.ethereum));
-    }
+    const initializeProvider = async () => {
+      if (typeof window !== 'undefined' && window.ethereum) {
+        try {
+          const ethereum = window.ethereum as MetaMaskInpageProvider;
+          const web3Provider = new ethers.providers.Web3Provider(
+            ethereum as unknown as ethers.providers.ExternalProvider,
+            'any'
+          );
+          setProvider(web3Provider);
+        } catch (error) {
+          console.error('Failed to initialize Web3Provider:', error);
+        }
+      }
+    };
+
+    initializeProvider();
   }, []);
 
   useEffect(() => {
@@ -55,7 +73,6 @@ export default function Home() {
     const updatedMessages = [...messages, userMessage];
     setMessages(updatedMessages);
     
-    // 会話履歴も更新
     setConversations(prev => prev.map(conv =>
       conv.id === currentConversation
         ? { ...conv, messages: updatedMessages }
@@ -63,23 +80,60 @@ export default function Home() {
     ));
     setCommand('');
 
-    const response = await processCommand(command);
-    const assistantMessage: Message = {
-      role: 'assistant',
-      content: response.success 
-        ? `${response.message}${response.transaction ? `\nトランザクションハッシュ: ${response.transaction.hash}` : ''}`
-        : `エラー: ${response.error}`,
-      timestamp: Date.now(),
-    };
-    const finalMessages = [...updatedMessages, assistantMessage];
-    setMessages(finalMessages);
-    
-    // 会話履歴も更新
-    setConversations(prev => prev.map(conv =>
-      conv.id === currentConversation
-        ? { ...conv, messages: finalMessages }
-        : conv
-    ));
+    try {
+      const response = await processCommand(command);
+      const assistantMessage: Message = {
+        role: 'assistant',
+        content: response.success 
+          ? response.message
+          : `エラー: ${response.error}`,
+        timestamp: Date.now(),
+        ui: response.ui,
+      };
+      const finalMessages = [...updatedMessages, assistantMessage];
+      setMessages(finalMessages);
+      
+      setConversations(prev => prev.map(conv =>
+        conv.id === currentConversation
+          ? { ...conv, messages: finalMessages }
+          : conv
+      ));
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : '不明なエラーが発生しました';
+      const assistantMessage: Message = {
+        role: 'assistant',
+        content: `エラー: ${errorMessage}`,
+        timestamp: Date.now(),
+      };
+      const finalMessages = [...updatedMessages, assistantMessage];
+      setMessages(finalMessages);
+      
+      setConversations(prev => prev.map(conv =>
+        conv.id === currentConversation
+          ? { ...conv, messages: finalMessages }
+          : conv
+      ));
+    }
+  };
+
+  const handleUIAction = async (action: string, value?: string) => {
+    if (!value && action !== '送金を実行') return;
+
+    const lastMessage = messages[messages.length - 1];
+    if (!lastMessage?.ui) return;
+
+    let nextCommand = '';
+    if (lastMessage.ui.type === 'input') {
+      nextCommand = value || '';
+    } else if (lastMessage.ui.type === 'confirm' && action === '送金を実行') {
+      nextCommand = 'confirm';
+    }
+
+    if (nextCommand) {
+      await handleSubmit({
+        preventDefault: () => {},
+      } as React.FormEvent);
+    }
   };
 
   const getCurrentConversation = () => {
@@ -96,7 +150,7 @@ export default function Home() {
   const startNewConversation = () => {
     const initialMessage: Message = {
       role: 'system',
-      content: 'Web3ウォレットへようこそ！ウォレットを接続して、自然言語でトランザクションを実行できます。',
+      content: 'Web3ウォレットへようこそ!ウォレットを接続して、自然言語でトランザクションを実行できます。',
       timestamp: Date.now(),
     };
     const newConversation: Conversation = {
@@ -112,9 +166,7 @@ export default function Home() {
 
   return (
     <div className="flex h-screen bg-gray-50">
-      {/* メインコンテンツ */}
       <div className="flex-1 flex flex-col">
-        {/* ヘッダー */}
         <nav className="bg-white border-b border-gray-200">
           <div className="max-w-[1400px] mx-auto h-16 px-4 flex items-center justify-between">
             <div className="flex items-center gap-8">
@@ -137,14 +189,14 @@ export default function Home() {
             <div className="flex items-center gap-2">
               {isConnected ? (
                 <button
-                  onClick={disconnect}
+                  onClick={() => disconnect()}
                   className="px-3 py-1.5 text-sm text-red-600 border border-red-200 rounded-lg hover:bg-red-50"
                 >
                   切断
                 </button>
               ) : (
                 <button
-                  onClick={connect}
+                  onClick={() => connect()}
                   className="px-3 py-1.5 text-sm text-white bg-green-500 rounded-lg hover:bg-green-600"
                 >
                   ウォレット接続
@@ -153,11 +205,9 @@ export default function Home() {
             </div>
           </div>
         </nav>
-        {/* メインエリア */}
+
         <div className="flex flex-1 overflow-hidden">
-          {/* チャットエリア */}
           <div className="flex-1 flex flex-col">
-            {/* メッセージエリア */}
             <div className="flex-1 overflow-y-auto bg-white">
               <div className="max-w-[900px] mx-auto w-full h-full py-8 px-6">
                 <div className="min-h-[calc(100%-8rem)] flex flex-col space-y-6">
@@ -170,7 +220,7 @@ export default function Home() {
                     </div>
                   )}
                   <div className="space-y-4">
-                    {messages.map((message, index) => (
+                    {messages.map((message) => (
                       <div
                         key={message.timestamp}
                         className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
@@ -185,6 +235,41 @@ export default function Home() {
                           }`}
                         >
                           <div className="whitespace-pre-wrap">{message.content}</div>
+                          {message.ui && (
+                            <div className="mt-4">
+                              {message.ui.type === 'input' && (
+                                <div className="flex gap-2">
+                                  <input
+                                    type="text"
+                                    placeholder={message.ui.placeholder}
+                                    className="flex-1 px-3 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-green-500"
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') {
+                                        handleUIAction('input', e.currentTarget.value);
+                                      }
+                                    }}
+                                  />
+                                </div>
+                              )}
+                              {message.ui.type === 'confirm' && message.ui.options && (
+                                <div className="flex gap-2 mt-2">
+                                  {message.ui.options.map((option) => (
+                                    <button
+                                      key={option}
+                                      onClick={() => handleUIAction(option)}
+                                      className={`px-4 py-2 rounded-lg text-sm font-medium ${
+                                        option === '送金を実行'
+                                          ? 'bg-green-500 text-white hover:bg-green-600'
+                                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                      }`}
+                                    >
+                                      {option}
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </div>
                     ))}
@@ -194,7 +279,6 @@ export default function Home() {
               </div>
             </div>
 
-            {/* 入力エリア */}
             <div className="border-t border-gray-200 bg-white">
               <div className="max-w-[900px] mx-auto px-6 py-4">
                 <form onSubmit={handleSubmit} className="flex gap-3">
@@ -202,7 +286,7 @@ export default function Home() {
                     type="text"
                     value={command}
                     onChange={(e) => setCommand(e.target.value)}
-                    placeholder={isConnected ? '例: 0.1 ETHを0x...に送金して' : 'ウォレットを接続してください'}
+                    placeholder={isConnected ? '例: ETHを送金したい' : 'ウォレットを接続してください'}
                     className="flex-1 px-4 py-3 rounded-xl border border-gray-200 bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
                     disabled={!isConnected || isProcessing}
                   />
@@ -218,7 +302,6 @@ export default function Home() {
             </div>
           </div>
 
-          {/* 履歴サイドバー */}
           <div className="w-[320px] border-l border-gray-200 bg-gray-50 overflow-y-auto flex flex-col">
             <div className="p-4 border-b border-gray-200">
               <div className="flex items-center justify-between mb-4">

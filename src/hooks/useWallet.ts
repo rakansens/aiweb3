@@ -1,58 +1,96 @@
-import { useAccount, useConnect, useDisconnect, useBalance } from 'wagmi';
-import { InjectedConnector } from 'wagmi/connectors/injected';
 import { useCallback, useEffect, useState } from 'react';
-import { ethers } from 'ethers';
+import { useAccount, useConnect, useDisconnect, useBalance, useNetwork } from 'wagmi';
+import { MetaMaskConnector } from 'wagmi/connectors/metaMask';
+import type { MetaMaskInpageProvider } from "@metamask/providers";
+
+declare global {
+  interface Window {
+    ethereum?: MetaMaskInpageProvider;
+  }
+}
 
 export const useWallet = () => {
   const { address, isConnected } = useAccount();
-  const { connect } = useConnect({
-    connector: new InjectedConnector(),
+  const { connect: wagmiConnect, isLoading } = useConnect({
+    connector: new MetaMaskConnector(),
   });
   const { disconnect } = useDisconnect();
   const { data: balance } = useBalance({
     address: address,
   });
-
+  const { chain } = useNetwork();
   const [ensName, setEnsName] = useState<string | null>(null);
 
-  useEffect(() => {
-    const fetchEnsName = async () => {
-      if (address && window.ethereum) {
-        const provider = new ethers.providers.Web3Provider(window.ethereum);
-        try {
-          const name = await provider.lookupAddress(address);
-          setEnsName(name);
-        } catch (error) {
-          console.error('Error fetching ENS name:', error);
-        }
+  const connect = useCallback(async () => {
+    try {
+      if (typeof window === 'undefined') {
+        throw new Error('ブラウザ環境でのみ実行可能です');
       }
+
+      const ethereum = window.ethereum;
+      if (!ethereum) {
+        throw new Error('MetaMaskがインストールされていません');
+      }
+
+      // MetaMaskが利用可能か確認
+      if (!ethereum.isMetaMask) {
+        throw new Error('MetaMaskを使用してください');
+      }
+
+      // 接続を試行
+      await wagmiConnect();
+
+    } catch (error) {
+      console.error('Wallet connection error:', error);
+      if (error instanceof Error) {
+        throw new Error(`ウォレット接続エラー: ${error.message}`);
+      }
+      throw new Error('ウォレットの接続に失敗しました');
+    }
+  }, [wagmiConnect]);
+
+  // ネットワーク変更の監視
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const ethereum = window.ethereum;
+    if (!ethereum) return;
+
+    const handleChainChanged = () => {
+      window.location.reload();
     };
 
-    fetchEnsName();
-  }, [address]);
+    ethereum.on('chainChanged', handleChainChanged);
+    return () => {
+      ethereum.removeListener('chainChanged', handleChainChanged);
+    };
+  }, []);
 
-  const handleConnect = useCallback(async () => {
-    try {
-      await connect();
-    } catch (error) {
-      console.error('Failed to connect:', error);
-    }
-  }, [connect]);
+  // アカウント変更の監視
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
 
-  const handleDisconnect = useCallback(() => {
-    try {
-      disconnect();
-    } catch (error) {
-      console.error('Failed to disconnect:', error);
-    }
-  }, [disconnect]);
+    const ethereum = window.ethereum;
+    if (!ethereum) return;
+
+    const handleAccountsChanged = () => {
+      window.location.reload();
+    };
+
+    ethereum.on('accountsChanged', handleAccountsChanged);
+    return () => {
+      ethereum.removeListener('accountsChanged', handleAccountsChanged);
+    };
+  }, []);
 
   return {
     address,
     ensName,
     isConnected,
+    isLoading,
     balance,
-    connect: handleConnect,
-    disconnect: handleDisconnect,
+    chain,
+    connect,
+    disconnect: () => disconnect(),
   };
 };
