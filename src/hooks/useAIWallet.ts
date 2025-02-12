@@ -71,8 +71,25 @@ export const useAIWallet = () => {
   const [state, setState] = useState<WalletState>(INITIAL_STATE);
   const mountedRef = useRef(true);
 
+  // キャッシュの有効期限(5分)
+  const CACHE_DURATION = 5 * 60 * 1000;
+  const stateCache = useRef<{
+    data: any;
+    timestamp: number;
+  } | null>(null);
+
   const refreshState = useCallback(async () => {
     if (!wallet || !mountedRef.current) return;
+
+    // キャッシュが有効な場合はキャッシュを使用
+    const cache = stateCache.current;
+    if (cache && Date.now() - cache.timestamp < CACHE_DURATION) {
+      setState(prev => ({
+        ...prev,
+        ...cache.data
+      }));
+      return;
+    }
 
     try {
       const [balance, dailyLimit, dailySpent, isLocked] = await Promise.all([
@@ -82,13 +99,23 @@ export const useAIWallet = () => {
         wallet.isLocked()
       ]);
 
+      const newState = {
+        balance,
+        dailyLimit,
+        dailySpent,
+        isLocked,
+      };
+
+      // キャッシュを更新
+      stateCache.current = {
+        data: newState,
+        timestamp: Date.now()
+      };
+
       if (mountedRef.current) {
         setState(prev => ({
           ...prev,
-          balance,
-          dailyLimit,
-          dailySpent,
-          isLocked,
+          ...newState
         }));
       }
     } catch (error) {
@@ -262,13 +289,8 @@ export const useAIWallet = () => {
   useEffect(() => {
     if (!wallet || !mountedRef.current) return;
 
+    // 初回のみ状態を更新
     refreshState();
-    // 更新頻度を2分に延長
-    const interval = setInterval(refreshState, 120000);
-
-    return () => {
-      clearInterval(interval);
-    };
   }, [wallet, refreshState]);
 
   // Alchemyデータの更新
