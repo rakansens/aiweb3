@@ -44,29 +44,43 @@ export class AIWallet {
     return await this.alchemy.core.getTokenBalances(this.contract.address);
   }
 
+  private eventListeners: { [key: string]: (...args: any[]) => void } = {};
+
   // イベントの監視
   async subscribeToEvents(callback: (event: any) => void): Promise<void> {
     const blockNumber = await this.provider.getBlockNumber();
     console.log('Current block:', blockNumber);
 
     // トランザクションイベントの監視
-    this.contract.on("TransactionExecuted", (to, value, event) => {
+    const transactionHandler = (to: string, value: ethers.BigNumber, event: any) => {
       callback({
-        type: "TransactionExecuted",
+        type: "transaction",
         to,
         value: ethers.utils.formatEther(value),
         event
       });
-    });
+    };
+    this.eventListeners["TransactionExecuted"] = transactionHandler;
+    this.contract.on("TransactionExecuted", transactionHandler);
 
     // ロック状態変更イベントの監視
-    this.contract.on("WalletLocked", (locked, event) => {
+    const lockHandler = (locked: boolean, event: any) => {
       callback({
-        type: "WalletLocked",
+        type: "lock",
         locked,
         event
       });
+    };
+    this.eventListeners["WalletLocked"] = lockHandler;
+    this.contract.on("WalletLocked", lockHandler);
+  }
+
+  // イベントの監視解除
+  unsubscribeFromEvents(): void {
+    Object.entries(this.eventListeners).forEach(([event, handler]) => {
+      this.contract.off(event, handler);
     });
+    this.eventListeners = {};
   }
 
   // 最新ブロックの取得

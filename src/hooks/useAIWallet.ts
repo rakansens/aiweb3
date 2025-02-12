@@ -263,7 +263,8 @@ export const useAIWallet = () => {
     if (!wallet || !mountedRef.current) return;
 
     refreshState();
-    const interval = setInterval(refreshState, 30000);
+    // 更新頻度を2分に延長
+    const interval = setInterval(refreshState, 120000);
 
     return () => {
       clearInterval(interval);
@@ -319,14 +320,23 @@ export const useAIWallet = () => {
     if (!wallet || !mountedRef.current) return;
 
     const handleEvent = (event: any) => {
-      refreshAlchemyData();
-      refreshState();
+      // イベント発生時のみ更新を実行
+      if (event.type === 'transaction' || event.type === 'block') {
+        refreshState();
+        // トランザクション関連のイベントの場合のみAlchemyデータを更新
+        if (event.type === 'transaction') {
+          refreshAlchemyData();
+        }
+      }
     };
 
     wallet.subscribeToEvents(handleEvent);
 
+    // 初回のAlchemyデータ取得
+    refreshAlchemyData();
+
     return () => {
-      // cleanup if needed
+      wallet.unsubscribeFromEvents();
     };
   }, [wallet, refreshAlchemyData, refreshState]);
 
