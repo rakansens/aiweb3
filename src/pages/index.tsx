@@ -146,13 +146,23 @@ export default function Home() {
     }
   }, [wallet.isInitialized, wallet.isCreating, wallet.address, wallet.balance]);
 
-  // メッセージの初期化
+  // メッセージの初期化とウォレットの読み込み
   useEffect(() => {
     if (isFirstRender) {
       setMessages([INITIAL_MESSAGE]);
       setIsFirstRender(false);
+      
+      // 保存されたウォレットを読み込む
+      wallet.loadExistingWallet().then(success => {
+        if (success) {
+          console.log('既存のウォレットを読み込みました');
+          wallet.refreshState();
+        }
+      }).catch(error => {
+        console.error('ウォレットの読み込みに失敗:', error);
+      });
     }
-  }, [isFirstRender]);
+  }, [isFirstRender, wallet]);
 
   // スクロール処理
   const scrollToBottom = useCallback(() => {
