@@ -7,6 +7,7 @@ import { useWalletList } from '../hooks/useWalletList';
 import { WalletInfoModal } from '../components/WalletInfoModal';
 import { WalletListModal } from '../components/WalletListModal';
 import { WalletCreationProgress } from '../components/WalletCreationProgress';
+import { BackupPhraseModal } from '../components/BackupPhraseModal';
 
 // 拡張されたウォレットの型
 type ExtendedWalletState = ReturnType<typeof useAIWallet> & {
@@ -62,30 +63,70 @@ export default function Home() {
   const [isFirstRender, setIsFirstRender] = useState(true);
   const [isWalletInfoOpen, setIsWalletInfoOpen] = useState(false);
   const [isWalletListOpen, setIsWalletListOpen] = useState(false);
+  const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
+
+  // メッセージの型定義
+  type MessageWithUI = Message & {
+    ui?: {
+      type: 'select';
+      options: string[];
+    };
+  };
+
+  // メッセージを追加する関数
+  const addMessage = useCallback((message: MessageWithUI) => {
+    setMessages(prev => [...prev, message]);
+  }, []);
 
   // ウォレット作成時の処理
-  const handleWalletCreated = useCallback((walletInfo: {
+  // ウォレット作成完了時の処理
+  const handleWalletCreated = useCallback(async (walletInfo: {
     address: string;
     privateKey: string;
     contractAddress: string;
   }) => {
-    console.log('Creating new wallet:', walletInfo);
-    const wallet = addWallet({
-      name: `ウォレット ${wallets.length + 1}`,
-      address: walletInfo.address,
-      contractAddress: walletInfo.contractAddress,
-      privateKey: walletInfo.privateKey
-    });
-    console.log('Wallet added:', wallet);
-    
-    // 既存のウォレットの場合はアクティブにする
-    if (wallet) {
-      switchActiveWallet(wallet.id);
+    try {
+      const newWallet = addWallet({
+        name: `ウォレット ${wallets.length + 1}`,
+        address: walletInfo.address,
+        contractAddress: walletInfo.contractAddress,
+        privateKey: walletInfo.privateKey
+      });
+      
+      if (newWallet) {
+        await switchActiveWallet(newWallet.id);
+        // ウォレット情報を表示
+        setIsWalletInfoOpen(true);
+        // AIWalletの状態を更新
+        await wallet.refreshState();
+        await wallet.refreshAlchemyData();
+        // バックアップモーダルを表示
+        setIsBackupModalOpen(true);
+        
+        // 成功メッセージを表示
+        addMessage({
+          role: 'assistant',
+          content: 'ウォレットの作成が完了しました。バックアップフレーズを保存してください。',
+          timestamp: Date.now(),
+          ui: {
+            type: 'select',
+            options: ['バックアップフレーズを確認', '残高を確認']
+          }
+        });
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : '不明なエラーが発生しました';
+      addMessage({
+        role: 'assistant',
+        content: `ウォレット作成エラー: ${errorMessage}`,
+        timestamp: Date.now(),
+        ui: {
+          type: 'select',
+          options: ['最初からやり直す']
+        }
+      });
     }
-    
-    // ウォレットリストを表示
-    setIsWalletListOpen(true);
-  }, [addWallet, wallets.length, setIsWalletListOpen]);
+  }, [addWallet, wallets.length, switchActiveWallet, wallet, setIsBackupModalOpen, setIsWalletInfoOpen, addMessage]);
 
   // 初期ウォレットの読み込み
   useEffect(() => {
@@ -177,45 +218,40 @@ export default function Home() {
     e.preventDefault();
     if (!command.trim()) return;
 
-    const userMessage: Message = {
+    // ユーザーメッセージを追加
+    addMessage({
       role: 'user',
       content: command,
-      timestamp: Date.now(),
-    };
+      timestamp: Date.now()
+    });
 
     try {
       const response = await processCommand(command);
-      setMessages(prev => [
-        ...prev,
-        userMessage,
-        {
-          role: 'assistant',
-          content: response.message,
-          timestamp: Date.now(),
-          ui: {
-            type: 'select',
-            options: response.ui?.options || [
-              'ウォレットについて教えて',
-              'ウォレットを作成したい'
-            ]
-          }
+      // AIの応答を追加
+      addMessage({
+        role: 'assistant',
+        content: response.message,
+        timestamp: Date.now(),
+        ui: {
+          type: 'select',
+          options: response.ui?.options || [
+            'ウォレットについて教えて',
+            'ウォレットを作成したい'
+          ]
         }
-      ]);
+      });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : '不明なエラーが発生しました';
-      setMessages(prev => [
-        ...prev,
-        userMessage,
-        {
-          role: 'assistant',
-          content: `エラー: ${errorMessage}`,
-          timestamp: Date.now(),
-          ui: {
-            type: 'select',
-            options: ['最初からやり直す']
-          }
+      // エラーメッセージを追加
+      addMessage({
+        role: 'assistant',
+        content: `エラー: ${errorMessage}`,
+        timestamp: Date.now(),
+        ui: {
+          type: 'select',
+          options: ['最初からやり直す']
         }
-      ]);
+      });
     }
     setCommand('');
   };
@@ -230,47 +266,30 @@ export default function Home() {
 
       // ウォレット関連のアクション処理
       if (action === 'ウォレットを作成したい') {
-        try {
-          const walletInfo = await wallet.createWallet();
-          
-          // ウォレットリストに追加
-          handleWalletCreated({
-            address: walletInfo.address,
-            privateKey: walletInfo.privateKey,
-            contractAddress: walletInfo.contractAddress
-          });
-
-          setMessages(prev => [...prev, {
-            role: 'assistant',
-            content: `ウォレットを作成しました!\n\nアドレス: ${walletInfo.address}\n\n重要な情報は安全に保管してください。`,
-            timestamp: Date.now(),
-            ui: {
-              type: 'select',
-              options: ['セキュリティ情報を表示', '残高を確認']
-            }
-          }]);
-          return;
-        } catch (error) {
-          throw new Error(`ウォレット作成に失敗しました: ${error instanceof Error ? error.message : String(error)}`);
-        }
+        const walletInfo = await wallet.createWallet();
+        
+        // ウォレットリストに追加
+        await handleWalletCreated({
+          address: walletInfo.address,
+          privateKey: walletInfo.privateKey,
+          contractAddress: walletInfo.contractAddress
+        });
+        return;
       }
 
-      if (action === 'セキュリティ情報を表示' && wallet.securityInfo) {
-        setMessages(prev => [...prev, {
+      if (action === 'セキュリティ情報を表示' && wallet.securityInfo?.mnemonic) {
+        setIsBackupModalOpen(true);
+        addMessage({
           role: 'assistant',
-          content: `重要なセキュリティ情報:\n\n秘密鍵:\n${wallet.securityInfo.privateKey || 'N/A'}\n\nニーモニック:\n${wallet.securityInfo.mnemonic || 'N/A'}\n\nこれらの情報は必ず安全な場所に保管してください。`,
-          timestamp: Date.now(),
-          ui: {
-            type: 'select',
-            options: ['情報を保存しました', '残高を確認']
-          }
-        }]);
+          content: 'バックアップフレーズを表示します。安全な場所に保存してください。',
+          timestamp: Date.now()
+        });
         return;
       }
 
       if (action === '残高を確認') {
         await wallet.refreshState();
-        setMessages(prev => [...prev, {
+        addMessage({
           role: 'assistant',
           content: `現在の残高: ${wallet.balance || '0'} ETH`,
           timestamp: Date.now(),
@@ -278,13 +297,13 @@ export default function Home() {
             type: 'select',
             options: ['トランザクション履歴を見る', 'ウォレットについて教えて']
           }
-        }]);
+        });
         return;
       }
 
       // その他のアクション
       const response = await processCommand(action);
-      setMessages(prev => [...prev, {
+      addMessage({
         role: 'assistant',
         content: response.message,
         timestamp: Date.now(),
@@ -295,10 +314,10 @@ export default function Home() {
             'ウォレットを作成したい'
           ]
         }
-      }]);
+      });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : '不明なエラーが発生しました';
-      setMessages(prev => [...prev, {
+      addMessage({
         role: 'assistant',
         content: `エラー: ${errorMessage}`,
         timestamp: Date.now(),
@@ -306,7 +325,7 @@ export default function Home() {
           type: 'select',
           options: ['最初からやり直す']
         }
-      }]);
+      });
     }
   };
 
@@ -344,6 +363,23 @@ export default function Home() {
             <WalletCreationProgress
               isCreating={wallet.isCreating}
               currentStep={wallet.processingStep}
+            />
+
+            <BackupPhraseModal
+              isOpen={isBackupModalOpen}
+              onClose={() => {
+                setIsBackupModalOpen(false);
+                setMessages(prev => [...prev, {
+                  role: 'assistant',
+                  content: 'バックアップフレーズの保存が完了しました。ウォレットの準備が整いました。',
+                  timestamp: Date.now(),
+                  ui: {
+                    type: 'select',
+                    options: ['残高を確認', 'トランザクション履歴を見る']
+                  }
+                }]);
+              }}
+              mnemonic={wallet.securityInfo?.mnemonic || ''}
             />
 
             {/* ヘッダーボタン */}

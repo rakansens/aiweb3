@@ -368,6 +368,10 @@ export const useAIWallet = () => {
     };
   }, [wallet, handleEvent]); // wallet変更時にイベントハンドラを再設定
 
+  const isConnected = useCallback(() => {
+    return state.isInitialized && wallet !== null;
+  }, [state.isInitialized, wallet]);
+
   return {
     ...state,
     createWallet,
@@ -376,5 +380,6 @@ export const useAIWallet = () => {
     toggleLock,
     refreshState,
     refreshAlchemyData,
+    isConnected,
   };
 };

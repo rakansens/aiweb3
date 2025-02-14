@@ -208,10 +208,7 @@ export class AIWallet {
 
       // 新しいユーザーウォレットを作成
       const userWallet = ethers.Wallet.createRandom().connect(provider);
-      console.log('新しいウォレットを作成しました:');
-      console.log('アドレス:', userWallet.address);
-      console.log('秘密鍵:', userWallet.privateKey);
-      console.log('ニーモニック:', userWallet.mnemonic?.phrase);
+      console.log('新しいウォレットを作成しました');
 
       // 管理者ウォレットを設定
       if (!process.env.NEXT_PUBLIC_ADMIN_PRIVATE_KEY) {

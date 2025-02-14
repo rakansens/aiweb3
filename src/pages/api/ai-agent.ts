@@ -10,8 +10,12 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 
 type AIResponse = {
   message: string;
-  action?: 'CREATE_WALLET' | 'SHOW_SECURITY' | 'BACKUP_WALLET';
-  step?: 'EXPLAIN' | 'CONFIRM' | 'CREATE' | 'BACKUP';
+  action?: 'CREATE_WALLET' | 'SHOW_SECURITY' | 'BACKUP_WALLET' | 'SEND_TRANSACTION';
+  step?: 'EXPLAIN' | 'CONFIRM' | 'CREATE' | 'BACKUP' | 'SEND';
+  transaction?: {
+    to: string;
+    amount: string;
+  };
   ui?: {
     type: 'input' | 'select';
     options?: string[];
@@ -33,7 +37,8 @@ async function processWithGemini(command: string): Promise<string> {
   重要: 選択肢はユーザーの会話コンテキストと現在の状況に応じて動的に生成してください。
   固定の選択肢は避け、以下のような状況に応じて適切な選択肢を提示してください:
 
-  - ウォレット作成後: 残高確認、トランザクション履歴、セキュリティ設定など
+  - ウォレット作成後: 残高確認、送金操作、トランザクション履歴、セキュリティ設定など
+  - 送金操作時: 送金先アドレスの確認、金額の確認、ガス代の説明など
   - エラー発生時: トラブルシューティング、再試行、サポート情報など
   - 一般的な質問: 具体的な説明の要求、関連する操作の提案など
   
@@ -95,7 +100,26 @@ async function processWithGemini(command: string): Promise<string> {
     }
   }
   
-  5. ウォレット情報の問い合わせ:
+  5. 送金操作:
+  {
+    "message": "送金内容の確認",
+    "action": "SEND_TRANSACTION",
+    "step": "CONFIRM",
+    "transaction": {
+      "to": "0x...",
+      "amount": "0.1"
+    },
+    "ui": {
+      "type": "select",
+      "options": [
+        "送金を実行する",
+        "金額を変更する",
+        "キャンセル"
+      ]
+    }
+  }
+  
+  6. ウォレット情報の問い合わせ:
   {
     "message": "現在のウォレット情報の説明",
     "ui": {
@@ -109,7 +133,7 @@ async function processWithGemini(command: string): Promise<string> {
     }
   }
   
-  6. 一般的な会話:
+  7. 一般的な会話:
   {
     "message": "会話の応答",
     "ui": {
@@ -253,7 +277,26 @@ Respond with JSON in one of these formats:
   }
 }
 
-5. General Conversation:
+5. Send Transaction:
+{
+  "message": "送金内容の確認",
+  "action": "SEND_TRANSACTION",
+  "step": "CONFIRM",
+  "transaction": {
+    "to": "0x...",
+    "amount": "0.1"
+  },
+  "ui": {
+    "type": "select",
+    "options": [
+      "送金を実行する",
+      "金額を変更する",
+      "キャンセル"
+    ]
+  }
+}
+
+6. General Conversation:
 {
   "message": "Conversation response",
   "ui": {

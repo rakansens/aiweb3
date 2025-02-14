@@ -86,6 +86,44 @@ export const useAICommand = () => {
         }
       }
 
+      // 送金処理
+      if (aiResponse.action === 'SEND_TRANSACTION') {
+        if (!wallet.isConnected()) {
+          return {
+            success: false,
+            message: 'ウォレットが接続されていません。先にウォレットを作成または復元してください。',
+            ui: {
+              type: 'select',
+              options: ['ウォレットを作成する', '最初からやり直す']
+            }
+          };
+        }
+
+        if (aiResponse.step === 'CONFIRM' && aiResponse.transaction) {
+          try {
+            const { to, amount } = aiResponse.transaction;
+            const tx = await wallet.executeTransaction(to, amount);
+            return {
+              success: true,
+              message: `送金が完了しました！\nトランザクションハッシュ: ${tx.hash}\n\n送金先: ${to}\n金額: ${amount} ETH`,
+              ui: {
+                type: 'select',
+                options: ['残高を確認する', '他の操作を行う']
+              }
+            };
+          } catch (error) {
+            return {
+              success: false,
+              message: `送金に失敗しました: ${error instanceof Error ? error.message : '不明なエラー'}`,
+              ui: {
+                type: 'select',
+                options: ['もう一度試す', '最初からやり直す']
+              }
+            };
+          }
+        }
+      }
+
       // セキュリティ情報の表示
       if (aiResponse.action === 'SHOW_SECURITY' && aiResponse.step === 'BACKUP') {
         if (!wallet.securityInfo.privateKey || !wallet.securityInfo.mnemonic) {
